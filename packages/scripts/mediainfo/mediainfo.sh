@@ -1,158 +1,440 @@
 #!/bin/bash
-VER=1.8
-#---------------------------------------------------------------#
-#                                                               #
-# Mediainfo by Teqno                                       	#
-#								#
-# It extracts info from *.rar file for related releases to	#
-# give the user the ability to compare quality.			#
-#								#
-#--[ Settings ]-------------------------------------------------#
+VER=2.01
+#---------------------------------------------------------------
+#                                                               
+# Mediainfo by Teqno                                            
+#                                                               
+# It extracts info from *.rar file for related releases to      
+# give the user the ability to compare quality.                 
+#                                                               
+#--[ Settings ]-------------------------------------------------
 
-GLROOT=/glftpd
-TMP=$GLROOT/tmp
-TMPFILE=$TMP/mediainfo.txt
-COLOR1=7 # Orange
-COLOR2=14 # Dark grey
-COLOR3=4 # Red
-SECTIONS="TV-720 TV-1080 TV-2160 TV-NO TV-NORDIC X264-1080 X265-2160"
+glroot=/glftpd
+tmp=$glroot/tmp
+tmpfile=$(mktemp $tmp/mediainfo.XXXXXX)
+color1=7 # Orange
+color2=14 # Dark grey
+color3=4 # Red
+sections="ARCHIVE/TV ARCHIVE/MOVIES/X264-1080 ARCHIVE/MOVIES/X265-2160 REQUESTS TV-720 TV-1080 TV-2160 TV-BLURAY TV-NL TV-NO TV-NORDIC X264-1080 X264-NORDIC X264-WEB X265-2160"
+
+#--[ Script Start ]---------------------------------------------
+
+# Setup automatic cleanup trap
+cleanup() {
+
+    rm -f "$tmpfile"
+
+}
+trap cleanup EXIT
+
+print_help()
+{
+	
+	local rendered_sections
+	rendered_sections="$(for sec in $sections
+	do
+		
+		printf "%s%s %s|\n" "$color3" "$sec" "$color2"
+	
+	done | sed 's/|$//')"
+
+	cat <<-EOF
+		${color2}Please enter full releasename ie ${color3}Terminator.Salvation.2009.THEATRICAL.1080p.BluRay.x264-FLAME
+		${color2}Only works for releases in: 
+		${rendered_sections}
+	EOF
+
+}
+
+select_section()
+{
+	
+	local input="$1"
+	local tv="$2"
+	local movie="$3"
+	local section=""
+	local release=""
+
+	if [[ -z "$tv" ]]
+	then
+
+		case "$input" in
+		
+            *ARCHIVE/MOVIES/*)
+
+                # Extract the section after ARCHIVE/MOVIES (e.g., X265-2160, X264-1080)
+                section=$(printf '%s\n' "$input" | awk -F 'ARCHIVE/MOVIES/' '{print $2}' | cut -d'/' -f1)
+
+                # Keep your normal movie-based release pattern
+                release="$movie*"
+            ;;
+            
+            *ARCHIVE/*)
+
+                # Handle layouts like: ARCHIVE/X265-2160/<Release>/
+                # Extract the first segment after ARCHIVE/ as the section (e.g., X265-2160)
+                section=$(printf '%s\n' "$input" | awk -F 'ARCHIVE/' '{print $2}' | cut -d'/' -f1)
+
+                release="$movie*"
+            ;;
+
+            *REQUESTS/*)
+                
+                local req_root
+			    req_root=$(printf '%s\n' "$input" | awk -F 'REQUESTS/' '{print $2}' | cut -d'/' -f1)
+
+				section="REQUESTS/$req_root"
+				release="$movie*"
+          	;;
+
+			*.2160p.*)
+				section="X265-2160"
+				release="$movie*"
+			;;
+
+            *.NORWEG[iI]AN.*|*.DAN[iI]SH.*|*.SWED[iI]SH.*|*.FINNISH.*)
+                section=X264-NORDIC
+                release="$movie*"
+            ;;
+
+            *.1080p.WEB*)
+    	    	section=X264-WEB
+	    	    release="$movie*"
+	        ;;
+
+			*.1080p.*)
+				
+				section="X264-1080"
+				release="$movie*"
+			;;
+
+			*)
+				print_help
+				exit 0
+			;;
+
+		esac
+
+	else
+
+		case "$input" in
+		
+            *ARCHIVE/TV/*)
+
+                # Extract the section after ARCHIVE/TV (e.g., TV-X264, TV-X265, TV-1080, TV-2160)
+                section=$(printf '%s\n' "$input" | awk -F 'ARCHIVE/TV/' '{print $2}' | sed 's|/[^/]*$||')
+
+
+                # Let the TV pattern from earlier parsing drive the release glob
+                # (works for nested paths like ARCHIVE/TV/TV-X264/Show/S01)
+                release="$tv*"
+            ;;		
+		
+
+            *ARCHIVE/*)
+
+                # Handle layouts like: ARCHIVE/TV-X265/Show/S02/<Episode>/
+                # Keep the nested parent path after ARCHIVE/, drop the final leaf (episode dir)
+                section=$(printf '%s\n' "$input" | awk -F 'ARCHIVE/' '{print $2}' | sed 's|/[^/]*$||')
+
+                release="$tv*"
+            ;;
+	        
+            *REQUESTS/*)
+
+			    local req_root
+			    req_root=$(printf '%s\n' "$input" | awk -F 'REQUESTS/' '{print $2}' | cut -d'/' -f1)
+
+			    section="REQUESTS/$req_root"
+			    release="$tv*"
+
+	        ;;
+	        
+            *.DAN[iI]SH.1080[Pp].*|*.SWED[iI]SH.1080[Pp].*|*.F[iI]NN[iI]SH.1080[Pp].*)
+		        section=TV-NORDIC
+		        release="$tv*1080p*"
+	        ;;
+	        
+            *.DAN[iI]SH.720[Pp].*|*.SWED[iI]SH.720[Pp].*|*.F[iI]NN[iI]SH.720[Pp].*)
+		        section=TV-NORDIC
+		        release="$tv*720p*"
+	        ;;
+	        
+            *.NORWEG[iI]AN.2160[Pp].*)
+		        section=TV-NO
+		        release="$tv*2160p*"
+	        ;;
+        
+            *.NORWEG[iI]AN.1080[Pp].*)
+		        section=TV-NO
+		        release="$tv*1080p*"
+	        ;;
+        
+            *.NORWEG[iI]AN.720[Pp].*)
+		        section=TV-NO
+		        release="$tv*720p*"
+	        ;;
+        
+            *.DUTCH.1080[Pp].*)
+		        section=TV-NL
+		        release="$tv*1080p*"
+	        ;;
+        
+            *.DUTCH.720[Pp].*)
+		        section=TV-NL
+		        release="$tv*720p*"
+	        ;;
+        
+            *.1080[Pp].BluRay.*)
+		        section=TV-BLURAY
+		        release="$tv*1080p*"
+	        ;;
+	        
+            *.1080[Pp].*)
+		        section=TV-1080
+		        release="$tv*1080p*"
+	        ;;
+        
+            *.720[Pp].*)
+		        section=TV-720
+		        release="$tv*720p*"
+	        ;;
+        
+            *.2160[Pp].UHD.BluRay.*)
+		        section=TV-BLURAY
+		        release="$tv*2160p*"
+	        ;;
+        
+            *.2160[Pp].*)
+		        section=TV-2160
+		        release="$tv*2160p*"
+	        ;;
+
+			*)
+				print_help
+				exit 0
+			;;
+
+		esac
+
+	fi
+
+	printf '%s|%s\n' "$section" "$release"
+
+}
+
+scan_and_print()
+{
+	
+	local section="$1"
+	local input="$2"
+	local release_pat="$3"
+
+	# Normalize: only the final directory name should be joined after $base/$section
+	local input_leaf="${input##*/}"
+
+	# Also normalize section in case it was set with a leading slash
+	section="${section#/}"
+
+	# Try primary site root first, then ARCHIVE/MOVIES and ARCHIVE/TV
+	local found=""
+	for base in "$glroot/site" "$glroot/site/ARCHIVE/MOVIES" "$glroot/site/ARCHIVE/TV" "$glroot/site/ARCHIVE"
+	do
+		
+		if [[ -d "$base/$section/$input_leaf" ]]
+		then
+
+			found="$base/$section"
+			break
+
+		fi
+	
+	done
+
+	if [[ -z "$found" ]]
+	then
+
+		echo "Release not found"
+		exit 0
+
+	else
+
+		if find "$found/$input_leaf" -type f -name '* Complete -*' -quit | grep -q .
+		then
+
+			echo "Release incomplete"
+			exit 0
+
+		else
+
+			cd "$glroot/bin" || { echo "Cannot cd to $glroot/bin" ; exit 1 ; }
+			[[ -d "$tmp" ]] || mkdir -m 0777 -p "$tmp"
+
+			shopt -s nullglob
+
+			# Scan under the resolved section root
+			for info in "$found"/*
+			do
+
+				
+				base_info="${info##*/}"
+
+				case "$base_info" in
+					*'[NUKED]'*|*'[INCOMPLETE]'*|*DIRFIX*|*SAMPLEFIX*|*NFOFIX*) continue ;;
+					$release_pat) : ;;
+					*) continue ;;
+				esac
+
+				if ! find "$info" -type f -name '* Complete -*' -quit | grep -q .
+				then
+
+					
+					media_file="$(find "$info" -maxdepth 1 -type f -name '*.rar' -print -quit)"
+					if [[ -z "$media_file" ]]
+					then
+
+						echo "No .rar found in: $base_info"
+						continue
+
+					fi
+
+					if ./mediainfo-rar "$media_file" | grep -q "failed"
+					then
+
+						echo "Couldn't extract information"
+						exit 0
+
+					fi
+
+					./mediainfo-rar "$media_file" > "$tmpfile"
+
+					local rel_name filesize duration obitrate vbitrate nbitrate audio abitrate mabitrate formtitle format channels language
+
+					rel_name="$(grep '^Filename' "$tmpfile" | cut -d ':' -f2- | sed -e "s|$found/||" -e 's|/.*||' -e 's/ //g')"
+					echo -en "${color1} $rel_name${color2}"
+
+					filesize="$(grep '^File size' "$tmpfile" | grep -E 'MiB|GiB' | cut -d ':' -f2- | sed 's/ //g')"
+					[[ -n "$filesize" ]] && echo -en " |${color1} $filesize${color2}"
+
+					duration="$(sed -n '/General/,/Video/p' "$tmpfile" | grep '^Duration' | uniq | cut -d ':' -f2- | sed 's/ //g')"
+					[[ -n "$duration" ]] && echo -en " |${color1} $duration${color2}"
+
+					obitrate="$(sed -n '/General/,/Video/p' "$tmpfile" | grep -v 'Overall bit rate mode' | grep '^Overall bit rate' | cut -d ':' -f2- | sed 's/ //g')"
+					[[ -n "$obitrate" ]] && echo -en " | Overall:${color1} $obitrate${color2}"
+
+					vbitrate="$(sed -n '/Video/,/Audio/p' "$tmpfile" | grep '^Bit rate  ' | cut -d ':' -f2- | sed 's/ //g')"
+					[[ -n "$vbitrate" ]] && echo -en " | Video:${color1} $vbitrate${color2}"
+
+					nbitrate="$(sed -n '/Video/,/Forced/p' "$tmpfile" | grep '^Nominal bit rate  ' | cut -d ':' -f2- | sed 's/ //g')"
+					[[ -n "$nbitrate" ]] && echo -en " | Video Nominal:${color1} $nbitrate${color2}"
+
+					if [[ -z "$(sed -n '/Audio #1/,/Forced/p' "$tmpfile")" ]]
+					then
+
+						audio="Audio"
+
+					else
+
+						audio="Audio #1"
+
+					fi
+
+					abitrate="$(sed -n "/$audio/,/Forced/p" "$tmpfile" | grep '^Bit rate  ' | cut -d ':' -f2- | sed 's/ //g')"
+					[[ -n "$abitrate" ]] && echo -en " | Audio:${color1} $abitrate${color2}"
+
+					mabitrate="$(sed -n "/$audio/,/Forced/p" "$tmpfile" | grep '^Maximum bit rate  ' | cut -d ':' -f2- | sed 's/ //g')"
+					[[ -n "$mabitrate" ]] && echo -en " | Max Audio:${color1} $mabitrate${color2}"
+
+					formtitle="$(sed -n "/$audio/,/Forced/p" "$tmpfile" | grep '^Title  ' | cut -d ':' -f2- | sed 's/ //')"
+					if [[ "$formtitle" =~ DTS-HD ]]
+					then
+
+						echo -en " |${color1} $formtitle${color2}"
+
+					else
+
+						format="$(sed -n "/$audio/,/Forced/p" "$tmpfile" | grep '^Format  ' | cut -d ':' -f2- | sed -e 's/^ //' -e 's/UTF-8//')"
+						[[ -n "$format" ]] && echo -en " |${color1} $format${color2}"
+
+						channels="$(sed -n "/$audio/,/Forced/p" "$tmpfile" | grep '^Channel(s)' | cut -d ':' -f2- | sed 's/ //g')"
+						[[ -n "$channels" ]] && echo -en "${color1} $channels${color2}"
+
+					fi
+
+					language="$(sed -n "/$audio/,/Forced/p" "$tmpfile" | grep '^Language  ' | cut -d ':' -f2- | sed 's/^ //' | head -1)"
+					[[ -n "$language" ]] && echo -en "${color1} $language${color2}"
+
+					echo
+
+				fi
+			
+			done
+
+			shopt -u nullglob
+
+		fi
+
+	fi
+
+}
+
+
 
 #--[ Script Start ]----------------------------------------------#
 
-SECTIONS=`for SEC in $SECTIONS; do echo -e "$COLOR3$SEC $COLOR2|"; done`
-SECTIONS=`echo $SECTIONS | sed 's/|$//'`
+main()
+{
 
-HELP="
-${COLOR2}Please enter full releasename ie ${COLOR3}Terminator.Salvation.2009.THEATRICAL.1080p.BluRay.x264-FLAME\n
-${COLOR2}Only works for releases in: $SECTIONS\n
-"
+    local input
+    input="$(printf '%s\n' "$*" | cut -d ' ' -f2 | sed 's|^/*||; s|/*$||')"
 
-INPUT=`echo "$@" | cut -d " " -f2`
-TV=`echo $INPUT | grep -o ".*.S[0-9][0-9]E[0-9][0-9].\|.*.E[0-9][0-9].\|.*.[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].\|.*.Part.[0-9]." | sed 's|^/||'`
-if [[ `echo $INPUT | sed 's/[0-9][0-9][0-9][0-9]p//' | grep -o ".*.[0-9][0-9][0-9][0-9]." | sed 's|^/||' | cut -d"/" -f4` ]]
-then
-    MOVIE=`echo $INPUT | sed 's/[0-9][0-9][0-9][0-9]p//' | grep -o ".*.[0-9][0-9][0-9][0-9]." | sed 's|^/||'`
-else
-    MOVIE=`echo $INPUT | sed 's|[0-9][0-9][0-9][0-9]p.*||'`
-fi
-
-if [ -z $INPUT ]
-then
-    echo -e $HELP
-else
-    if [ -z $TV ] 
+    if [[ -z "$input" ]]
     then
-	case $INPUT in
-	    *.2160p.*)
-    	    section=X265-2160
-	    release="$MOVIE*"
-	    ;;
-	    *.1080p.*)
-	    section=X264-1080
-	    release="$MOVIE*"
-	    ;;
-	    *)
-	    echo -e $HELP
-	    exit 0
-	    ;;
-	esac
-    else
-	case $INPUT in
-            *.2160p.*)
-            section=TV-2160
-            release="$TV*2160p*"
-            ;;
-            *.DAN[iI]SH.1080p.*|*.SWED[iI]SH.1080p.*|*.FINNISH.1080p.*)
-            section=TV-NORDIC
-            release="$TV*1080p*"
-            ;;
-            *.NORWEG[iI]AN.1080p.*)
-            section=TV-NO
-            release="$TV*1080p*"
-            ;;
-            *.1080p.BluRay.*)
-            section=TV-BLURAY
-            release="$TV*1080p*"
-            ;;
-            *.1080p.*)
-            section=TV-1080
-            release="$TV*1080p*"
-            ;;
-            *.DAN[iI]SH.720p.*|*.SWED[iI]SH.720p.*|*.FINNISH.720p.*)
-            section=TV-NORDIC
-            release="$TV*720p*"
-            ;;
-            *.NORWEG[iI]AN.720p.*)
-            section=TV-NO
-            release="$TV*720p*"
-            ;;
-            *.720p.*)
-            section=TV-720
-            release="$TV*720p*"
-            ;;
-            *)
-            echo -e $HELP
-            exit 0
-            ;;
-	esac
+
+        print_help
+        exit 0
+
     fi
 
-    if [ ! -d $GLROOT/site/$section/$INPUT ]
-    then
-        echo "Release not found"
-        exit 0
-    else
-        if [ "$(find $GLROOT/site/$section/$INPUT -type f -name '* Complete -*' | wc -l )" != "0" ]
-        then
-            echo "Release incomplete"
-        exit 0
-        else
-            cd $GLROOT/bin
-            if [ ! -d $TMP ]; then mkdir -m777 $GLROOT/tmp ; fi
-            for info in `ls $GLROOT/site/$section | egrep -iv "\[NUKED\]|\[INCOMPLETE\]|DIRFIX|SAMPLEFIX|NFOFIX" | grep "$release"`
-            do
-                if [ $(find $GLROOT/site/$section/$info -type f -name "* Complete -*" | wc -l ) = "0" ]
-                then
-		    for media in `ls $GLROOT/site/$section/$info | grep ".*.rar" | head -1`
-                    do
-                	if [[ `./mediainfo-rar $GLROOT/site/$section/$info/$media | grep failed | wc -l` = "1" ]] ; then echo "Couldn't extract information" ; exit 0 ; fi
-                	./mediainfo-rar $GLROOT/site/$section/$info/$media > $TMPFILE
-                        release=`grep "^Filename" $TMPFILE | cut -d ":" -f2 | sed -e "s|$GLROOT/site/$section/||" -e 's|/.*||' -e 's/ //'`
-                        echo -en "${COLOR1} $release${COLOR2}"
-                        filesize=`grep "File size*" $TMPFILE | grep "MiB\|GiB" | cut -d ":" -f2 | sed 's/ //'`
-                        echo -en " |${COLOR1} $filesize${COLOR2}"
-			duration=`sed -n '/General/,/Video/p' $TMPFILE | grep "^Duration" | uniq | cut -d ":" -f2 | sed 's/ //'`
-                        echo -en " |${COLOR1} $duration${COLOR2}"
-                        obitrate=`sed -n '/General/,/Video/p' $TMPFILE | grep -v "Overall bit rate mode" | grep "Overall bit rate" | cut -d ":" -f2 | sed 's/ //'`
-                        if [ "$obitrate" ]; then echo -en " | Overall:${COLOR1} $obitrate${COLOR2}" ; fi
-                        vbitrate=`sed -n '/Video/,/Audio/p' $TMPFILE | grep "^Bit rate  " | cut -d ":" -f2 | sed 's/ //'`
-                        if [ "$vbitrate" ]; then echo -en " | Video:${COLOR1} $vbitrate${COLOR2}" ; fi
-                        nbitrate=`sed -n '/Video/,/Forced/p' $TMPFILE | grep "^Nominal bit rate  " | cut -d ":" -f2 | sed 's/ //'`
-                        if [ "$nbitrate" ]; then  echo -en " | Video Nominal:${COLOR1} $nbitrate${COLOR2}" ; fi
-                        if [ -z "`sed -n '/Audio #1/,/Forced/p' $TMPFILE`" ]; then audio="Audio" ;  else audio="Audio #1" ; fi
-                        abitrate=`sed -n "/$audio/,/Forced/p" $TMPFILE | grep "^Bit rate  " | cut -d ":" -f2 | sed 's/ //'`
-                        if [ "$abitrate" ]; then echo -en " | Audio:${COLOR1} $abitrate${COLOR2}" ; fi
-                        mabitrate=`sed -n "/$audio/,/Forced/p" $TMPFILE | grep "^Maximum bit rate  " | cut -d ":" -f2 | sed 's/ //'`
-                        if [ "$mabitrate" ]; then echo -en " | Max Audio:${COLOR1} $mabitrate${COLOR2}" ; fi
-                        formtitle=`sed -n "/$audio/,/Forced/p" $TMPFILE | grep "^Title  " | cut -d ":" -f2 | sed 's/ //'`
-                        if [[ "$formtitle" =~ "DTS-HD" ]]
-                    	then
-                    	    echo -en " |${COLOR1} $formtitle${COLOR2}"
-                    	else
-                    	    format=`sed -n "/$audio/,/Forced/p" $TMPFILE | grep "^Format  " | cut -d ":" -f2 | sed -e 's/ //' -e 's/UTF\-8//'`
-                            if [ "$format" ]; then echo -en " |${COLOR1} $format${COLOR2}" ; fi
-                            channels=`sed -n "/$audio/,/Forced/p" $TMPFILE | grep "^Channel(s)" | cut -d ":" -f2 | sed 's/ //'`
-                            if [ "$channels" ]; then echo -en "${COLOR1} $channels${COLOR2}" ; fi
-                        fi
-                        language=`sed -n "/$audio/,/Forced/p" $TMPFILE | grep "^Language  " | cut -d ":" -f2 | sed 's/ //' | head -1`
-                        if [ "$language" ]; then echo -en "${COLOR1} $language${COLOR2}" ; fi
-                        echo
-                    done
-                    rm $TMPFILE
-                fi
-            done
-        fi
-    fi
-fi
+    # Always work from the leaf to avoid dragging path segments into patterns
+    local input_leaf
+    input_leaf="${input##*/}"
 
-exit 0
+    local tv movie
+
+	# Detect TV tokens (season/episode/date/part)
+    # 1) Try from leaf (normal TV dirs)
+    # 2) If empty, fall back to full path (handles REQUESTS/FILLED-Show.S01E03/Leaf)    
+    tv=$(printf '%s\n' "$input_leaf" | grep -Eo '.*(S[0-9]{2}E[0-9]{2}|E[0-9]{2}|[0-9]{4}\.[0-9]{2}\.[0-9]{2}|Part\.[0-9])')
+	if [[ -z "$tv" ]]
+    then
+
+        tv=$(printf '%s\n' "$input" | grep -Eo '.*(S[0-9]{2}E[0-9]{2}|E[0-9]{2}|[0-9]{4}\.[0-9]{2}\.[0-9]{2}|Part\.[0-9])' | sed 's|.*/||')
+
+    fi	
+
+
+    # Build MOVIE STEM up to the 4-digit year from the LEAF (e.g., "Title.2018.")
+    if printf '%s' "$input_leaf" | sed -E 's/[0-9]{4}p//' | grep -Eq '.*\.[0-9]{4}\.'
+    then
+
+        movie="$(printf '%s' "$input_leaf" | sed -E 's/[0-9]{4}p//' | grep -Eo '.*\.[0-9]{4}\.')"
+
+    else
+
+        # Fallback: strip trailing quality tokens if no year was found
+        movie="$(printf '%s' "$input_leaf" | sed -E 's/[0-9]{4}p.*//')"
+
+    fi
+
+    # Now select_section can derive the correct section from either the archive path or the quality,
+    # and will receive a movie STEM so release="$movie*" matches all variants (INTERNAL, different groups, etc.)
+    IFS='|' read -r section release <<<"$(select_section "$input" "$tv" "$movie")"
+
+    scan_and_print "$section" "$input" "$release"
+
+    exit 0
+
+}
+
+main "$@"

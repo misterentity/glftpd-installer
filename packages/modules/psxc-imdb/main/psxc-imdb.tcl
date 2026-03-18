@@ -83,7 +83,7 @@ namespace eval ::ngBot::plugin::psxc-IMDb {
         ## before known as "full" mode.
         ## You also set this to "YES" if you wish this addon to handle
         ## all !imdb requests.
-        set psxc(USEFULL) "NO"
+        set psxc(USEFULL) "YES"
         ##
         ## Is pre-support wanted?
         set psxc(USEPRE)  "YES"
@@ -113,7 +113,7 @@ namespace eval ::ngBot::plugin::psxc-IMDb {
         set ${np}::disable(IMDBFINDVAR)            0
         ##
         ## Convert empty or zero variables into something else.
-	## If you use MYOWN these are not used, see psxc-imdb.conf
+		## If you use MYOWN these are not used, see psxc-imdb.conf
         set ${np}::zeroconvert(%imdbdirname)       "N/A"
         set ${np}::zeroconvert(%imdburl)           "N/A"
         set ${np}::zeroconvert(%imdbtitle)         "N/A"

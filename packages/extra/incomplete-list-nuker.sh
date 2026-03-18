@@ -1,152 +1,305 @@
 #!/bin/bash
-VER=1.0
-##############################
-# CONFIG                     #
-# ^^^^^^                     #
-##############################
+VER=1.31
+#--[ Info ]-----------------------------------------------------
+#
+# Put in crontab:
+# */10 * * * * /glftpd/bin/incomplete-list-nuker.sh >/dev/null 2>&1
+#
+#--[ Settings ]-------------------------------------------------
 
-# enter path glftpd is installed in.
 glroot=/glftpd
-
-# enter path to the cleanup binary.
 cleanup=$glroot/bin/cleanup
-
-# enter path to the nuker binary
 nukeprog=$glroot/bin/nuker
-
-# enter the username which will be used to nuke
 nukeuser=glftpd
-
-# enter the reason for the nuke
-reason="-Auto- Not completed for 12 hours."
-
-# enter the multiplier for the nuke
+reason="-Auto- Not completed for"
 multiplier=5
-
-# enter the path to glftpd.conf
 glconf=$glroot/etc/glftpd.conf
-
-# date format for log file
-now="$( date +%Y-%m-%d" "%H:%M:%S )"
-
-# minutes old for nuke to occur
+now="$(date +%Y-%m-%d" "%H:%M:%S)"
 minutes=720
-
-# nuke release even if it's just the nfo that is missing
-nonfo=0
-
-# path to log file
 log=$glroot/ftp-data/logs/incomplete-list-nuker.log
+botconf=$glroot/sitebot/scripts/pzs-ng/ngBot.conf
+releaseComplete=" Complete "
 
-# enter sections in the following format:
-# <announce name of section>:<path to section, including a terminating slash ``/''
-# spaces and newline separates.
-#sections="
-#0DAY:/site/incoming/0day/
-#GAMES:/site/incoming/games/
-#APPS:/site/incoming/apps/
-#MV:/site/incoming/musicvideos/
-#"
+# cleaning of [NUKED]- releases
+prefix="$(grep nukedir_style $glroot/etc/glftpd.conf | awk '{print $2}' | cut -d '-' -f1)-"
+cache_file=$glroot/bin/incomplete-list-nuker.cache
+cleannuked=1
+nukeage=720
 
-# alternative, set the following variable to point to your dZSbot.conf and
-# uncomment the ''botconf='' directive below.
-botconf=/glftpd/sitebot/scripts/pzs-ng/ngBot.conf
+# Set to 1 to also nuke when complete but missing NFO
+nonfo=1
 
-# Set this to your complete line (non-dynamic part)
-releaseComplete="Complete -"
+#--[ Script Start ]---------------------------------------------
 
-# set this to one if you have sections in subdirs of one another - ie,
-# if you have defined in $sections "A:/site/DIR" and "B:/site/DIR/SUBDIR"
-no_strict=0
-
-#############################
-# END OF CONFIG             #
-# ^^^^^^^^^^^^^             #
-#############################
-
-if [ "`find \"$glroot/tmp/incomplete-list-nuker.lock\" -type f -mmin +20`" ] ; then rm -f $glroot/tmp/incomplete-list-nuker.lock ; fi
-if [ -e "$glroot/tmp/incomplete-list-nuker.lock" ]
+lockfile="$glroot/tmp/incomplete-list-nuker.lock"
+if [[ -f "$lockfile" && -n "$(find "$lockfile" -mmin +20 -type f 2>/dev/null)" ]]
 then
-    echo "Check already running"
-else
-    touch $glroot/tmp/incomplete-list-nuker.lock
-    # grab sections from the sitebot's conf instead
-    if [ ! -z "$botconf" ] && [ -e "$botconf" ]
-    then
-	sections="`grep "^set paths(" $botconf | sed 's/^set paths(\(.*\))[[:space:]]\{1,\}\"\(.*\)\*\"/\1:\2/'`"
-    fi
-    IFSORIG="$IFS"
-    IFS="
-    "
-    for section in $sections
-    do
-	secname="`echo "$section" | cut -d ':' -f 1`"
-	secpaths="`echo "$section" | cut -d ':' -f 2- | tr ' ' '\n'`"
-	for secpath in $secpaths
-	do
-    	    results="`$cleanup $glroot 2>/dev/null | grep -e "^Incomplete" | tr '\"' '\n' | grep -e "$secpath" | egrep -v "/Sample|/Subs" | tr -s '/' | sort`"
-    	    if [ ! -z "$results" ]
-	    then
-		for result in $results
-		do
-		    secrel=`echo $result | sed "s|$secpath||" | tr -s '/' | sed "s|$glroot||"`
-		    comp="`ls -1 $result/ | grep "$releaseComplete"`"
-		    percent="`echo $comp | awk -F " " '{print $3}'` complete"
-		    if [ "$percent" != " complete" ]
-		    then
-		    	percent="`echo $comp | awk -F " " '{print $3}'`"
-			if [ $no_strict ] || [ "`dirname $secrel`/" = "`echo $secpath/ | tr -s '/'`" ]
-			then
-			    echo "$secname: ${secrel} is $percent complete."
-    			    if [ "$secname" = "0DAY" ] || [ "$secname" = "MP3" ] || [ "$secname" = "FLAC" ] || [ "$secname" = "EBOOKS" ] || [ "$secname" = "XXX-PAYSITE" ]
-			    then
-                            	release=`echo $secrel | awk -F "/" '{print $2}'`
-		                day=`echo $secrel | awk -F "/" '{print $1}'`
-				if [ $(find $glroot/site/$secname/$secrel -maxdepth 0 -type f -iname "Approved_by*" | wc -l) == "0" ]
-				then
-				    find $glroot/site/$secname/$day -maxdepth 1 -mmin +$minutes -type d -name $release -exec echo $now - Nuking incomplete release $release in section $secname >> $log ';'
-				    find $glroot/site/$secname/$day -maxdepth 1 -mmin +$minutes -type d -name $release -exec $nukeprog -r $glconf -N $nukeuser -n /site/$secname/$day/$release $multiplier $reason ';'
-				fi
-			    else
-				if [ $(find $glroot/site/$secname/$secrel -maxdepth 0 -type f -iname "Approved_by*" | wc -l) == "0" ]
-				then
-				    find $glroot/site/$secname -maxdepth 1 -mmin +$minutes -type d -name $secrel -exec echo $now - Nuking incomplete release $secrel in section $secname >> $log ';'
-				    find $glroot/site/$secname -maxdepth 1 -mmin +$minutes -type d -name $secrel -exec $nukeprog -r $glconf -N $nukeuser -n /site/$secname/$secrel $multiplier $reason ';'
-				fi
-			    fi
-			fi
-		    else
-			if [ $no_strict ] || [ "`dirname $secrel`/" = "`echo $secpath/ | tr -s '/'`" ]
-			then
-			    [ "$nonfo" = 0 ] && echo "$secname: ${secrel} is either empty or missing a NFO."
-			    if [ "$nonfo" = 1 ]
-			    then
-    				if [ "$secname" = "0DAY" ] || [ "$secname" = "MP3" ] || [ "$secname" = "FLAC" ] || [ "$secname" = "EBOOKS" ] || [ "$secname" = "XXX-PAYSITE" ]
-				then
-                            	    release=`echo $secrel | awk -F "/" '{print $2}'`
-		            	    day=`echo $secrel | awk -F "/" '{print $1}'`
-				    if [ $(find $glroot/site/$secname/$secrel -maxdepth 0 -type f -iname "Approved_by*" | wc -l) == "0" ]
-				    then
-					find $glroot/site/$secname/$day -maxdepth 1 -mmin +$minutes -type d -name $release -exec echo $now - Nuking incomplete release $release in section $secname >> $log ';'
-					find $glroot/site/$secname/$day -maxdepth 1 -mmin +$minutes -type d -name $release -exec $nukeprog -r $glconf -N $nukeuser -n /site/$secname/$day/$release $multiplier $reason ';'
-				    fi
-				else
-				    if [ $(find $glroot/site/$secname/$secrel -maxdepth 0 -type f -iname "Approved_by*" | wc -l) == "0" ]
-				    then
-					find $glroot/site/$secname -maxdepth 1 -mmin +$minutes -type d -name $secrel -exec echo $now - Nuking incomplete release $secrel in section $secname >> $log ';'
-					find $glroot/site/$secname -maxdepth 1 -mmin +$minutes -type d -name $secrel -exec $nukeprog -r $glconf -N $nukeuser -n /site/$secname/$secrel $multiplier $reason ';'
-				    fi
-				fi
-			    fi
-			fi
-		    fi
-		done
-	    fi
-	done
-    done
-    echo "No more incompletes found."
-    IFS="$IFSORIG"
-    rm -f $glroot/tmp/incomplete-list-nuker.lock
+    rm -f "$lockfile"
 fi
 
-exit 0
+if [[ -e "$lockfile" ]]
+then
+
+    echo "Check already running"
+    exit 0
+
+fi
+
+trap 'rm -f "$lockfile"' EXIT INT TERM
+: > "$lockfile"
+
+#--[ Preconditions ]--------------------------------------------
+
+if [[ ! -x "$cleanup" || ! -x "$nukeprog" ]]
+then
+
+    echo "Missing binaries: cleanup or nuker."
+    exit 1
+
+fi
+
+# derive sections from botconf if present
+if [[ -n "$botconf" && -e "$botconf" ]]
+then
+
+    # Remove the wildcards from section paths for matching and fix double slashes
+    sections="$(grep -E '^set[[:space:]]+paths\(' "$botconf" \
+        | sed -E 's/^set paths\((.*)\)[[:space:]]+"(.*)\*"/\1:\2/' \
+        | sed -E 's|\*||g;s|//$|/|' | sort)"
+
+fi
+
+if [[ -z "$sections" ]]
+then
+
+    echo "No sections configured (set \$botconf or \$sections)."
+    exit 1
+
+fi
+
+#--[ Functions ]------------------------------------------------
+
+store_nuke()
+{
+
+    nukedir="$(echo $1 | awk -F '/' '{print $NF}')"
+    nukepath="$(echo $1 | sed "s|$nukedir|$prefix$nukedir|")"
+    echo "$now:$nukepath" >> $cache_file
+
+}
+
+remove_nuke()
+{
+
+    nukedir="$(echo $1 | awk -F '/' '{print $NF}')"
+    sed -i "/$nukedir/d" $cache_file
+
+}
+
+duration_str()
+{
+
+    local mins=$1
+    local h=$(( mins / 60 ))
+    local m=$(( mins % 60 ))
+
+    if (( mins < 60 ))
+    then
+
+        echo "$mins minute$([[ $mins -eq 1 ]] && echo "" || echo s)"
+
+    elif (( m == 0 ))
+    then
+
+        echo "$h hour$([[ $h -eq 1 ]] && echo "" || echo s)"
+
+    else
+
+        echo "$h hour$([[ $h -eq 1 ]] && echo "" || echo s) $m minute$([[ $m -eq 1 ]] && echo "" || echo s)"
+
+    fi
+
+}
+
+#--[ Main ]-----------------------------------------------------
+
+case $1 in
+
+    store)
+
+        store_nuke "$2"
+        exit 0
+        ;;
+
+    remove)
+
+        remove_nuke "$2"
+        exit 0
+        ;;
+
+esac
+
+if [[ "$cleannuked" -eq 1 ]]
+then
+
+    if [[ -f "$cache_file" ]]
+    then
+
+        current_time="$(date +%s)"
+
+        while IFS= read -r line
+        do
+
+            if [[ "$line" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})\ ([0-9]{2}:[0-9]{2}:[0-9]{2}):(.+)$ ]]
+            then
+
+                date_str="${BASH_REMATCH[1]}"
+                time_str="${BASH_REMATCH[2]}"
+                release_path="${BASH_REMATCH[3]}"
+                release_name="$(basename "$release_path")"
+                relname="${release_name#\[NUKED\]-}"
+
+                file_timestamp="$(date -d "$date_str $time_str" +%s 2>/dev/null)"
+
+                if [[ -n "$file_timestamp" ]]
+                then
+
+                    age_seconds=$(( current_time - file_timestamp ))
+                    age_minutes=$(( age_seconds / 60 ))
+
+                    if [[ "$age_minutes" -gt "$nukeage" ]]
+                    then
+
+                        if [[ -d "$glroot$release_path" ]]
+                        then
+
+                            echo "Removing NUKED release older than ${nukeage} minutes: $release_path"
+                            sed -i "\|$relname|d" "$cache_file"
+                            rm -rf "$glroot$release_path"
+
+                        fi
+
+                    else
+
+                        echo "NUKED release within age limit (${age_minutes}/${nukeage} minutes): $release_path"
+
+                    fi
+
+                fi
+
+                [[ ! -d "$glroot$release_path" ]] && sed -i "\|$relname|d" "$cache_file"
+
+            fi
+
+        done < "$cache_file"
+        
+    else
+
+        touch $cache_file && chmod 666 $cache_file
+
+    fi
+
+else
+
+    echo "NUKED release cleaning is disabled (cleannuked=0)"
+
+fi
+
+
+age_str="$(duration_str "$minutes")."
+
+IFSORIG="$IFS"
+IFS=$'\n'
+
+for section in $sections
+do
+
+    secname="$(echo "$section" | cut -d ':' -f 1)"
+    secpaths="$(echo "$section" | cut -d ':' -f 2- | tr ' ' '\n')"
+    
+	for secpath in $secpaths
+    do
+
+        # Add glroot to section path for matching since cleanup outputs full paths
+        full_secpath="$glroot$secpath"
+
+        # Get results using the same parsing method as incomplete-list.sh
+        results="$("$cleanup" "$glroot" 2>/dev/null | grep -E '^Incomplete' | tr '\"' '\n' | grep -F "$full_secpath" | grep -Ev '/Sample' | tr -s '/' | sort)"
+		
+    	[[ -z "$results" ]] && continue
+
+	    for result in $results
+    	do
+
+	        secrel="$(echo "$result" | sed "s|$full_secpath||" | sed 's|^/||')"
+    	    target="$result"
+        	nukesite="${result#$glroot}"
+        	reldir="$(echo $nukesite | awk -F '/' '{print $NF}')"
+        	relname="$(echo $nukesite | sed "s|$reldir|$prefix$reldir|")"
+        	
+	        # Skip if Approved_by exists
+    	    if [[ $(find "$target" -maxdepth 1 -type f -iname "Approved_by*" 2>/dev/null | wc -l) -ne 0 ]]
+        	then
+ 
+            	continue
+ 
+	        fi
+
+    	    comp="$(ls -1 "$target/" 2>/dev/null | grep -i "$releaseComplete" | head -1)"
+        	percent="$(echo "$comp" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+%$/){print $i; exit}}')"
+
+			# Pre-calc to avoid repeated find calls
+			dir_old_count="$(find "$target" -maxdepth 0 -type d -mmin +"$minutes" 2>/dev/null | wc -l)"
+			nfo_count="$(find "$target" -maxdepth 1 -type f -iname "*.nfo" 2>/dev/null | wc -l)"
+			
+
+			if [[ -n "$percent" && "$percent" != "100%" ]]
+			then
+			
+				echo "$secname: ${secrel} is $percent complete."
+				if [[ "$dir_old_count" -ne 0 ]]
+				then
+			
+					echo "$now - Nuking incomplete release $secrel in section $secname" >> "$log"
+					"$nukeprog" -r "$glconf" -N "$nukeuser" -n "$nukesite" "$multiplier" "$reason $age_str"
+					store_nuke $nukesite
+			
+				fi
+				
+			elif [[ ! -z "$comp" && "$nonfo" -eq 1 && "$nfo_count" -eq 0 ]]
+			then
+			
+				echo "$secname: ${secrel} is complete but missing NFO."
+				if [[ "$dir_old_count" -ne 0 ]]
+				then
+			
+					echo "$now - Nuking no-nfo release $secrel in section $secname" >> "$log"
+					"$nukeprog" -r "$glconf" -N "$nukeuser" -n "$nukesite" "$multiplier" "$reason $age_str"
+					store_nuke $nukesite
+			
+				fi				
+			
+			elif [[ -z "$comp" ]]
+			then
+			
+				echo "$secname: ${secrel} has no progress marker (.sfv/Complete)."
+				if [[ "$dir_old_count" -ne 0 ]]
+				then
+			
+					echo "$now - Nuking release (no progress marker) $secrel in section $secname" >> "$log"
+					"$nukeprog" -r "$glconf" -N "$nukeuser" -n "$nukesite" "$multiplier" "$reason $age_str"
+					store_nuke $nukesite
+					
+				fi
+			
+			fi
+
+
+		done
+
+    done
+
+done
+
+echo "No more incompletes found."
+IFS="$IFSORIG"

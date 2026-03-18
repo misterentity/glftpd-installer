@@ -1,4 +1,38 @@
-## 11.x -
+## 12.1 - 2026-01-27
+
+### Added
+
+- Added a new script called tag-empty-inc.sh under folder scripts that can be used to tag new directories as empty during creation that can be extremely useful for sites that like to keep things tidy
+- Added a new script called nuke_cache.sh under folder extra that can be used to tag and track manual nukes in incomplete-list-nuker.cache that later can be used for cleanup by incomplete-list-nuker.sh. I have 
+  enabled it in glftpd.conf.
+- Added turranius script botnuke as a module to enable public nukes/unnukes where it's been modified to include the storage of nukes in incomplete-list-nuker.cache
+- Added my own TMDB scripts to scripts dir that can be used as a replacement of psxc-imdb. It requires an API key to work, but they are given out freely at https://themoviedb.org.
+
+### Updated
+
+- Various optimization of code and removal of unnecessary files
+- I've set tag-empty-inc.sh as default and no longer use tur-autonuke.sh by default
+- Updated incomplete-list.sh, incomplete-list-symlinks and incomplete-list-nuker.sh
+- Enabled the storage of nukes in psxc-imdb-nuker.sh by creating a store function in incomplete-list-nuker.sh that can be called upon by external scripts like psxc-imdb-nuker.sh
+- Disabled some features in psxc-imdb.conf business, premiere, limited that I felt was really not that important but that increases the speed of script execution for imdb output in irc channel
+- Removed inetd detection from installgl.sh and forced the use of systemd for the installation of glFTPd
+- Moved USERAGENT in psxc-imdb into psxc-imdb.conf
+- Refactored and optimized TVMaze scripts
+
+### Fixes
+
+- I silenced a compiling error of dirloglist_gl that was non-critical
+- When providing default ip for user and passive adress it used ipv6, changed to ipv4
+- incomplete-list, incomplete-list-nuker and incomplete-list-symlinks work as they should now after refactoring
+- various fixes in numerous scripts been made
+- mediainfo didn't work properly under ARCHIVE and REQUESTS
+- Fixed incomplete-list.sh, incomplete-list-symlinks and incomplete-list-nuker.sh that didn't trigger properly based on whether it was totally empty, partly or complete but lacked nfo
+- psxc-imdb.sh couldn't handle taglines properly when they had " in them
+- psxc-imdb.sh and psxc-imdb-find.sh stopped working again
+- Minor fix for psxc-imdb.sh when it comes to the output in .imdb
+- Removed wrong usage of sudo in install.sh
+
+## 12.0 - 2025-09-01
 
 ### Updated
 
@@ -8,12 +42,19 @@
 - Changed from a fixed password in section-traffic and tur-trial to an install generated password for better security
 - Changed from a fixed password in backup.sh to an install generated password for better security
 - Improved the SQL queries for section-traffic and created two SQL indexes that increased the speed quite a lot, especially for larger databases
+- Improved tvmaze-symlink-maker.sh and imdb-scan.sh when it comes to the handling of relative paths and also added the rank option to tvmaze-symlink-maker.sh
+- Massive overhaul of the code in install.sh and the various scripts that I've made over the years that are included, all for the sake of much needed optimization
+- Moved away from overwriting 50-server.cnf in relation to the install of tur-trial and section-traffic that are using mariadb where it now runs on a mariadb on a separate port 3307 where
+  it also keeps its datadir in $glroot/backup/mysql that shouldn't affect other existing databases. This has hopefully resolved the major security issue #1 that was presented in SECURITY.MD
 
 ### Fixes
 
 - glFTPd website https://glftpd.io down broke the installer, changed source to https://mirror.glftpd.nl.eu.org when grabbing glFTPd
 - tur-request announced the wrong color if the releasename started with a number
 - tur-precheck didn't work properly when VERIFY_RAR_WITH_SFV and VERIFY_MP3_WITH_SFV was set to FALSE
+- Fixed the error message when there is no .lock file in incomplete-list-nuker.sh
+- IMDB.com changed their layout so fixed psxc-imdb.sh and moved away from HTML parsing to JSON as much as I could
+- Various fixes in various scripts due to a massive overhaul of the code
 
 ## 11.1 - 2024-08-04
 

@@ -1,119 +1,109 @@
 #!/bin/bash
-VER=1.5
-#--[ Info ]-----------------------------------------------------#
+VER=1.7
+#--[ Info ]-----------------------------------------------------
+#
+# TVMaze Info by Teqno
+#
+# This script comes without any warranty, use it at your own risk.
 #
 # This script enables the creation of .imdb and tag file with
 # TVMaze info. Copy this to /glftpd/bin and chmod 755.
 #
-# Changelog
-# 2022-04-21 v1.5 Added ability to set user/group for tvmaze files in rls dir
-# 2021-03-25 v1.4 Code for airdate was not properly set
-# 2021-03-03 v1.3 Added option for maximum width for plot summary
-# 2021-03-02 v1.2 Cosmetic changes in code and change from premiered to show type in tag file
-# 2021-02-28 v1.1 Added TVMaze link for show and episode
-# 2021-02-26 v1.0 Orginal creator Teqno
-#
-#--[ Settings ]-------------------------------------------------#
+#--[ Settings ]-------------------------------------------------
 
-glroot=/glftpd
-debug=0
-# Maximum width for text written to .imdb
-width=77
+GLROOT=/glftpd
+DEBUG=0
+
 # What user/group to set for tmaze files in rls dir, requires chmod u+s /glftpd/bin/chown
-setuser=glftpd
-setgroup=NoGroup
+SETUSER=glftpd
+SETGROUP=NoGroup
 
-#--[ Script Start ]---------------------------------------------#
+#--[ Script Start ]---------------------------------------------
 
-user=`grep $setuser $glroot/etc/passwd | cut -d ':' -f3`
-group=`grep $setgroup $glroot/etc/group | cut -d ':' -f3`
+user=$(grep "^${SETUSER}:" "$GLROOT/etc/passwd" | cut -d ':' -f3)
+group=$(grep "^${SETGROUP}:" "$GLROOT/etc/group" | cut -d ':' -f3)
 
-# Process args and remove unwanted chars..
-RLS_NAME=`sed -e 's/^"//' -e 's/"$//' <<<"$1"`
-SHOW_NAME=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' <<<"$2"`
-SHOW_GENRES=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' <<<"$3"`
-SHOW_COUNTRY=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' <<<"$4"`
-SHOW_LANGUAGE=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' <<<"$5"`
-SHOW_NETWORK=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' <<<"$6"`
-SHOW_STATUS=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' <<<"$7"`
-SHOW_TYPE=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' <<<"$8"`
-EP_AIR_DATE=`sed -e 's/^"//' -e 's/"$//' <<<"$9"`
-SHOW_RATING=`sed -e 's/^"//' -e 's/"$//' <<<"${10}"`
-SHOW_IMDB=`sed -e 's/^"//' -e 's/"$//' <<<"${11}"`
-SHOW_SUMMARY=`sed -e 's/^"//' -e 's/"$//' -e 's|_| |g' -e 's|<*.[b|i|p]>||g' <<<"${12}"`
-SHOW_PREMIERED=`sed -e 's/^"//' -e 's/"$//' -e 's/-.*//g'<<<"${13}"`
-SHOW_URL=`sed -e 's/^"//' -e 's/"$//' -e 's/-.*//g'<<<"${14}"`
-EP_URL=`sed -e 's/^"//' -e 's/"$//' -e 's/-.*//g'<<<"${15}"`
+# Remove surrounding quotes and replace underscores with spaces where needed
+remove_quotes() { printf '%s' "${1//\"/}"; }
+remove_quotes_and_underscores() { printf '%s' "${1//\"/}" | tr '_' ' '; }
 
-[ "$SHOW_GENRES" == "null" -o -z "$SHOW_GENRES" ] && SHOW_GENRES="NA"
-[ "$SHOW_COUNTRY" == "null" -o -z "$SHOW_COUNTRY" ] && SHOW_COUNTRY="NA"
-[ "$SHOW_LANGUAGE" == "null" -o -z "$SHOW_LANGUAGE" ] && SHOW_LANGUAGE="NA"
-[ "$SHOW_NETWORK" == "null" -o -z "$SHOW_NETWORK" ] && SHOW_NETWORK="NA"
-[ "$SHOW_STATUS" == "null" -o -z "$SHOW_STATUS" ] && SHOW_STATUS="NA"
-[ "$SHOW_TYPE" == "null" -o -z "$SHOW_TYPE" ] && SHOW_TYPE="NA"
-[ "$EP_AIR_DATE" == "null" -o -z "$EP_AIR_DATE" ] && EP_AIR_DATE="NA"
-[ "$SHOW_RATING" == "null" -o -z "$SHOW_RATING" ] && SHOW_RATING="NA"
-[ "$SHOW_IMDB" == "null" -o -z "$SHOW_IMDB" ] && SHOW_IMDB="NA"
-[ "$SHOW_SUMMARY" == "null" -o -z "$SHOW_SUMMARY" ] && SHOW_SUMMARY="NA"
-[ "$SHOW_PREMIERED" == "null" -o -z "$SHOW_PREMIERED" ] && SHOW_PREMIERED="NA"
-[ "$SHOW_URL" == "null" -o -z "$SHOW_URL" ] && SHOW_URL="NA"
-[ "$EP_URL" == "null" -o -z "$EP_URL" ] && EP_URL="NA"
+RLS_NAME=$(remove_quotes "$1")
+SHOW_NAME=$(remove_quotes_and_underscores "$2")
+SHOW_GENRES=$(remove_quotes_and_underscores "$3")
+SHOW_COUNTRY=$(remove_quotes_and_underscores "$4")
+SHOW_LANGUAGE=$(remove_quotes_and_underscores "$5")
+SHOW_NETWORK=$(remove_quotes_and_underscores "$6")
+SHOW_STATUS=$(remove_quotes_and_underscores "$7")
+SHOW_TYPE=$(remove_quotes_and_underscores "$8")
+EP_AIR_DATE=$(remove_quotes "$9")
+SHOW_RATING=$(remove_quotes "${10}")
+SHOW_IMDB=$(remove_quotes "${11}")
+SHOW_SUMMARY=$(remove_quotes "${12}" | tr '_' ' ' | sed 's|<*.[bip]>||g')
+SHOW_PREMIERED=$(remove_quotes "${13}" | sed 's/-.*//g')
+SHOW_URL=$(remove_quotes "${14}" | sed 's/-.*//g')
+EP_URL=$(remove_quotes "${15}" | sed 's/-.*//g')
 
+for var in SHOW_GENRES SHOW_COUNTRY SHOW_LANGUAGE SHOW_NETWORK SHOW_STATUS \
+           SHOW_TYPE EP_AIR_DATE SHOW_RATING SHOW_IMDB SHOW_SUMMARY \
+           SHOW_PREMIERED SHOW_URL EP_URL
+do
 
-if [ "$debug" -eq 1 ]
-then
-    echo "============================ TVMAZE INFO v$VER ================================"
-    echo ""
-    echo "Title........: $SHOW_NAME"
-    echo "Premiered....: $SHOW_PREMIERED"
-    echo "-"
-    echo "IMDB Link....: $SHOW_IMDB"
-    echo "TVMaze Link..: $SHOW_URL"
-    echo "Episode Link.: $EP_URL"
-    echo "Genre........: $SHOW_GENRES"
-    echo "Type.........: $SHOW_TYPE"
-    echo "User Rating..: $SHOW_RATING"
-    echo "-"
-    echo "Country......: $SHOW_COUNTRY"
-    echo "Language.....: $SHOW_LANGUAGE"
-    echo "Network......: $SHOW_NETWORK"
-    echo "Status.......: $SHOW_STATUS"
-    echo "Premiered....: $SHOW_PREMIERED"
-    echo "Airdate......: $EP_AIR_DATE"
-    echo "-"
-    echo "Plot.........: $SHOW_SUMMARY"
-    echo ""
-    echo "============================ TVMAZE INFO v$VER ================================"
-else
-    echo "============================ TVMAZE INFO v$VER ================================" > $glroot$RLS_NAME/.imdb
-    echo "" >> $glroot$RLS_NAME/.imdb
-    echo "Title........: $SHOW_NAME" >> $glroot$RLS_NAME/.imdb
-    echo "Premiered....: $SHOW_PREMIERED" >> $glroot$RLS_NAME/.imdb
-    echo "-" >> $glroot$RLS_NAME/.imdb
-    echo "IMDB Link....: $SHOW_IMDB" >> $glroot$RLS_NAME/.imdb
-    echo "TVMaze Link..: $SHOW_URL" >> $glroot$RLS_NAME/.imdb
-    echo "Episode Link.: $EP_URL" >> $glroot$RLS_NAME/.imdb
-    echo "Genre........: $SHOW_GENRES" >> $glroot$RLS_NAME/.imdb
-    echo "Type.........: $SHOW_TYPE" >> $glroot$RLS_NAME/.imdb
-    echo "User Rating..: $SHOW_RATING" >> $glroot$RLS_NAME/.imdb
-    echo "-" >> $glroot$RLS_NAME/.imdb
-    echo "Country......: $SHOW_COUNTRY" >> $glroot$RLS_NAME/.imdb
-    echo "Language.....: $SHOW_LANGUAGE" >> $glroot$RLS_NAME/.imdb
-    echo "Network......: $SHOW_NETWORK" >> $glroot$RLS_NAME/.imdb
-    echo "Status.......: $SHOW_STATUS" >> $glroot$RLS_NAME/.imdb
-    echo "Premiered....: $SHOW_PREMIERED" >> $glroot$RLS_NAME/.imdb
-    echo "Airdate......: $EP_AIR_DATE" >> $glroot$RLS_NAME/.imdb
-    echo "-" >> $glroot$RLS_NAME/.imdb
-    echo "Plot.........: $SHOW_SUMMARY" | fold -s -w $width >> $glroot$RLS_NAME/.imdb
-    echo "" >> $glroot$RLS_NAME/.imdb
-    echo "============================ TVMAZE INFO v$VER ================================" >> $glroot$RLS_NAME/.imdb
-    SHOW_GENRES=`echo $SHOW_GENRES | sed -e 's/ /_/g' -e 's|/|-|g'`
-    touch "$glroot$RLS_NAME/[TVMAZE]=-_Score_${SHOW_RATING}_-_${SHOW_GENRES}_-_(${SHOW_TYPE})_-=[TVMAZE]"
-    if [ -f "$glroot$RLS_NAME/.imdb" ]
+    if [[ "${!var}" == "null" || -z "${!var}" ]]
     then
-        chmod 666 "$glroot$RLS_NAME/[TVMAZE]=-_Score_${SHOW_RATING}_-_${SHOW_GENRES}_-_(${SHOW_TYPE})_-=[TVMAZE]" $glroot$RLS_NAME/.imdb
-        $glroot/bin/chown $user:$group "$glroot$RLS_NAME/[TVMAZE]=-_Score_${SHOW_RATING}_-_${SHOW_GENRES}_-_(${SHOW_TYPE})_-=[TVMAZE]" $glroot$RLS_NAME/.imdb
+
+        declare "$var=NA"
+
     fi
+
+done
+
+# Create the output content once
+TVMAZE_INFO=$(cat <<- EOF
+============================ TVMAZE INFO v$VER ================================
+
+Title........: $SHOW_NAME
+Premiered....: $SHOW_PREMIERED
+	
+IMDB Link....: $SHOW_IMDB
+TVMaze Link..: $SHOW_URL
+Episode Link.: $EP_URL
+Genre........: $SHOW_GENRES
+Type.........: $SHOW_TYPE
+User Rating..: $SHOW_RATING
+	
+Country......: $SHOW_COUNTRY
+Language.....: $SHOW_LANGUAGE
+Network......: $SHOW_NETWORK
+Status.......: $SHOW_STATUS
+Airdate......: $EP_AIR_DATE
+	
+Plot.........: $SHOW_SUMMARY
+	
+============================ TVMAZE INFO v$VER ================================
+EOF
+)
+if (( DEBUG == 1 ))
+then
+	echo "$TVMAZE_INFO"
+else
+
+    # Output to file
+    output_file="$GLROOT$RLS_NAME/.imdb"
+    echo "$TVMAZE_INFO" > "$output_file"
+
+    # Format genres for filename
+    SHOW_GENRES=$(echo "$SHOW_GENRES" | sed -e 's/ /_/g' -e 's|/|-|g')
+    tvmarker_file="$GLROOT$RLS_NAME/[TVMAZE]=-_Score_${SHOW_RATING}_-_${SHOW_GENRES}_-_(${SHOW_TYPE})_-=[TVMAZE]"
+    
+    touch "$tvmarker_file"
+
+    if [[ -f "$output_file" ]]
+    then
+
+        chmod 666 "$tvmarker_file" "$output_file"
+        $GLROOT/bin/chown $user:$group "$tvmarker_file" "$output_file"
+
+    fi
+
 fi
 
-exit 0

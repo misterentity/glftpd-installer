@@ -1,5 +1,5 @@
 #                                                                            #
-# Section-Traffic.tcl 1.0 by Teqno                                           #
+# Section-Traffic.tcl by Teqno                                           	 #
 # Change binds below to whatever you want the trigger the script with.       #
 #                                                                            #
 # If section-traffic.sh is not located in /glftpd/bin/, then                 #
@@ -12,22 +12,47 @@
 #                                                                            #
 ##############################################################################
 
-bind pub o !st pub:section-traffic
+namespace eval section_traffic {
 
-set stmainchannel "changeme"
-
-##############################################################################
-
-## Public chan.
-proc pub:section-traffic {nick output binary chan text} {
-  set binary {/glftpd/bin/section-traffic.sh}
-  global stmainchannel
-  if {$chan == $stmainchannel} {
-        putquick "PRIVMSG $chan : \0037Gathering info, please wait..."
-    foreach line [split [exec $binary $nick $text] "\n"] {
-        putquick "PRIVMSG $chan :$line"
+    variable shfile "/glftpd/bin/section-traffic.sh"
+    variable mainchan "changeme"
+    variable VERSION "unknown"
+    
+    # Initialize the namespace
+    proc init {} {
+        variable shfile
+        variable VERSION
+        
+        # Read version from script file
+        set fh [open $shfile r]
+        set data [read $fh]
+        close $fh
+        
+        if {[regexp -- {VER\s*=\s*([A-Za-z0-9._-]+)} $data -> version]} {
+            set VERSION $version
+        }
+        
+        # Set up binds
+        bind pub o !st [namespace current]::pub_section_traffic
+        
+        putlog "section-traffic.tcl $VERSION by Teqno loaded"
     }
-  }
+    
+    # Section traffic command
+    proc pub_section_traffic {nick host handle chan text} {
+        variable mainchan
+        variable shfile
+        
+        if {$chan eq $mainchan} {
+            putquick "PRIVMSG $chan : \0037Gathering info, please wait..."
+            
+            foreach line [split [exec $shfile $nick $text] "\n"] {
+                putquick "PRIVMSG $chan :$line"
+            }
+        }
+    }
+
 }
 
-putlog "section-traffic.tcl 1.0 by Teqno loaded"
+# Initialize the namespace
+section_traffic::init
