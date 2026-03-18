@@ -21,8 +21,8 @@ A Windows GUI application for installing glFTPd on remote Linux servers via SSH.
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/glftpd-installer-gui.git
-cd glftpd-installer-gui
+git clone https://github.com/misterentity/glftpd-installer.git
+cd glftpd-installer
 ```
 
 2. Install Python dependencies:
@@ -96,7 +96,7 @@ tur-trial3 and do this manually instead.
 ## To download
 
 ``` 
-git clone https://github.com/teqnodude/glftpd-installer
+git clone https://github.com/misterentity/glftpd-installer
 ```
 
 ## Software
@@ -159,15 +159,15 @@ dpkg-reconfigure dash
 
 ### Normal installation
 
-![Screenshot_1](https://github.com/teqnodude/glftpd-installer/assets/36924638/af283a70-7445-47f0-92fb-91b87aea06c1)
-![Screenshot_2](https://github.com/teqnodude/glftpd-installer/assets/36924638/ffcf7274-1de5-4e82-8c69-ba9f55450a3d)
-![Screenshot_3](https://github.com/teqnodude/glftpd-installer/assets/36924638/a13f4665-5ade-4c75-8f9d-41861e91b898)
-![Screenshot_4](https://github.com/teqnodude/glftpd-installer/assets/36924638/014d40b3-9353-40bf-974d-6af3ade9265f)
+![Screenshot_1](https://github.com/misterentity/glftpd-installer/assets/36924638/af283a70-7445-47f0-92fb-91b87aea06c1)
+![Screenshot_2](https://github.com/misterentity/glftpd-installer/assets/36924638/ffcf7274-1de5-4e82-8c69-ba9f55450a3d)
+![Screenshot_3](https://github.com/misterentity/glftpd-installer/assets/36924638/a13f4665-5ade-4c75-8f9d-41861e91b898)
+![Screenshot_4](https://github.com/misterentity/glftpd-installer/assets/36924638/014d40b3-9353-40bf-974d-6af3ade9265f)
 
 ### Unattended installation
 
-![Screenshot_5](https://github.com/teqnodude/glftpd-installer/assets/36924638/784c4698-ac20-4210-8581-0f89dac0cbd4)
-![Screenshot_6](https://github.com/teqnodude/glftpd-installer/assets/36924638/0db1bb75-cdbd-43ea-9586-afceb517e2b3)
+![Screenshot_5](https://github.com/misterentity/glftpd-installer/assets/36924638/784c4698-ac20-4210-8581-0f89dac0cbd4)
+![Screenshot_6](https://github.com/misterentity/glftpd-installer/assets/36924638/0db1bb75-cdbd-43ea-9586-afceb517e2b3)
 
 ## How to do an Unattended installation
 
