@@ -709,6 +709,9 @@ class GlftpdInstallerGUI:
 
     def _start_matrix_effect(self):
         c = self.COLORS
+        self._matrix_active = True
+        self.root.bind("<FocusIn>", self._on_focus_in)
+        self.root.bind("<FocusOut>", self._on_focus_out)
         for _ in range(30):
             lbl = tk.Label(self.root, text="", font=("Consolas", 8),
                            bg=c["bg"], fg=c["fg"])
@@ -716,7 +719,17 @@ class GlftpdInstallerGUI:
             self.matrix_labels.append(lbl)
         self._update_matrix()
 
+    def _on_focus_in(self, event=None):
+        if not self._matrix_active:
+            self._matrix_active = True
+            self._update_matrix()
+
+    def _on_focus_out(self, event=None):
+        self._matrix_active = False
+
     def _update_matrix(self):
+        if not self._matrix_active:
+            return
         for lbl in self.matrix_labels:
             if random.random() < 0.15:
                 lbl.config(text=random.choice("01"))
@@ -725,7 +738,7 @@ class GlftpdInstallerGUI:
                 lbl.place(x=random.randint(0, 880), y=-20)
             else:
                 lbl.place(x=lbl.winfo_x(), y=y + 8)
-        self.root.after(40, self._update_matrix)
+        self.root.after(100, self._update_matrix)
 
     # -- SSH connection ---------------------------------------------------------
 
@@ -750,8 +763,9 @@ class GlftpdInstallerGUI:
 
         try:
             self.ssh_client = paramiko.SSHClient()
+            self.ssh_client.load_system_host_keys()
             self.ssh_client.set_missing_host_key_policy(
-                paramiko.AutoAddPolicy())
+                paramiko.WarningPolicy())
 
             connect_kw = {
                 "hostname": host, "port": port,
@@ -879,8 +893,10 @@ class GlftpdInstallerGUI:
              "dated": s["dated"].get()}
             for s in self.section_entries
         ]
-        with open(path, "w") as f:
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w") as f:
             json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
 
     def load_profile(self):
         if self.testing:
@@ -955,7 +971,7 @@ class GlftpdInstallerGUI:
         self._parse_cache(content)
 
     def _parse_cache(self, content):
-        kv_re = re.compile(r'^(\w+)="([^"]*)"', re.MULTILINE)
+        kv_re = re.compile(r'^(\w+)="((?:[^"\\]|\\.)*)"', re.MULTILINE)
         data = dict(kv_re.findall(content))
 
         cache_to_attr = {}
@@ -1034,14 +1050,33 @@ class GlftpdInstallerGUI:
         thread = threading.Thread(target=self._run_installation, daemon=True)
         thread.start()
 
+    def _check_ssh_alive(self):
+        transport = self.ssh_client.get_transport() if self.ssh_client else None
+        if not transport or not transport.is_active():
+            raise ConnectionError("SSH connection lost")
+
+    def _exec_checked(self, cmd, timeout=30):
+        self._check_ssh_alive()
+        stdin, stdout, stderr = self.ssh_client.exec_command(
+            cmd, timeout=timeout)
+        exit_code = stdout.channel.recv_exit_status()
+        out = stdout.read().decode(errors="replace")
+        err = stderr.read().decode(errors="replace")
+        return exit_code, out, err
+
     def _run_installation(self):
         remote_path = "/tmp/glftpd-installer"
+        install_ok = False
         try:
             self.update_progress(1, "CREATING DIR")
-            self.ssh_client.exec_command(f"mkdir -p {remote_path}")
+            code, _, err = self._exec_checked(f"mkdir -p {remote_path}")
+            if code != 0:
+                raise RuntimeError(
+                    f"Failed to create remote directory: {err}")
             self.log_message("Created installation directory")
 
             self.update_progress(2, "TRANSFERRING")
+            self._check_ssh_alive()
             local_path = os.path.dirname(os.path.abspath(__file__))
             self.sftp_client.put(
                 os.path.join(local_path, "install.sh"),
@@ -1054,6 +1089,7 @@ class GlftpdInstallerGUI:
                 tmp.write(cache_content)
                 tmp_path = tmp.name
             try:
+                self._check_ssh_alive()
                 self.sftp_client.put(tmp_path,
                                      f"{remote_path}/install.cache")
             finally:
@@ -1061,25 +1097,56 @@ class GlftpdInstallerGUI:
             self.log_message("Transferred configuration file")
 
             self.update_progress(3, "SETTING UP")
-            self.ssh_client.exec_command(
+            code, _, err = self._exec_checked(
                 f"chmod +x {remote_path}/install.sh")
+            if code != 0:
+                raise RuntimeError(f"Failed to chmod install.sh: {err}")
             self.log_message("Made installation script executable")
 
             self.update_progress(4, "INSTALLING")
+            self._check_ssh_alive()
             stdin, stdout, stderr = self.ssh_client.exec_command(
                 f"sudo -S {remote_path}/install.sh")
             stdin.write(self.ssh_password.get() + "\n")
             stdin.flush()
 
-            for line in stdout:
-                self.log_message(line.strip())
+            channel = stdout.channel
+            channel.settimeout(600)
+            buf_out = b""
+            buf_err = b""
+            while not channel.exit_status_ready():
+                if channel.recv_ready():
+                    chunk = channel.recv(4096)
+                    buf_out += chunk
+                    while b"\n" in buf_out:
+                        line, buf_out = buf_out.split(b"\n", 1)
+                        self.log_message(
+                            line.decode(errors="replace").rstrip())
+                if channel.recv_stderr_ready():
+                    buf_err += channel.recv_stderr(4096)
+                time.sleep(0.05)
 
-            errors = stderr.read().decode()
+            while channel.recv_ready():
+                buf_out += channel.recv(4096)
+            while channel.recv_stderr_ready():
+                buf_err += channel.recv_stderr(4096)
+
+            if buf_out:
+                for line in buf_out.decode(errors="replace").splitlines():
+                    self.log_message(line.rstrip())
+
+            exit_code = channel.recv_exit_status()
+            errors = buf_err.decode(errors="replace")
             if errors:
                 self.log_message(f"Errors:\n{errors}", "error")
 
+            if exit_code != 0:
+                raise RuntimeError(
+                    f"install.sh exited with code {exit_code}")
+
+            install_ok = True
             self.update_progress(5, "CLEANING UP")
-            self.ssh_client.exec_command(f"rm -rf {remote_path}")
+            self._exec_checked(f"rm -rf {remote_path}")
             self.log_message("Installation completed successfully!",
                              "success")
             self.root.after(0, messagebox.showinfo,
@@ -1087,6 +1154,10 @@ class GlftpdInstallerGUI:
 
         except Exception as e:
             self.log_message(f"Error during installation: {e}", "error")
+            if not install_ok:
+                self.log_message(
+                    "Remote files kept for debugging at "
+                    f"{remote_path}", "warning")
             self.root.after(0, messagebox.showerror,
                             "Error", f"Installation failed: {e}")
         finally:

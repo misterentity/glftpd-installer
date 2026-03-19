@@ -1,4 +1,6 @@
 #!/bin/bash
+set -o pipefail
+
 VER=12.1
 
 # Set debug mode (0=off, 1=on)
@@ -159,7 +161,7 @@ then
     case $reply in
 
 	[dD]*) rm -rf "$glroot" ;;
-	[tT]*) glroot="./"; continue ;;
+	[tT]*) read -p "Enter new path: " glroot; glroot="${glroot:-./}" ;;
 	[iI]*) ;;
 	*) echo "Aborting."; exit 1 ;;
 
@@ -186,8 +188,8 @@ echo
 case $readme in
 
     [Yy]) ;;
-    [Nn]) rm -r /glftpd && rm -r .tmp ; exit 1 ;;
-    *) rm -r /glftpd && rm -r .tmp ; exit 1 ;;
+    [Nn]) rm -rf "$glroot" ; rm -rf .tmp ; exit 1 ;;
+    *) rm -rf "$glroot" ; rm -rf .tmp ; exit 1 ;;
 
 esac
 
@@ -213,27 +215,31 @@ requirements()
         bsdmainutils rsyslog
     )
 
+    local missing=()
     for pkg in "${packages[@]}"
     do
-        
-        if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"
+
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"
         then
-        
-            continue
-        
-        else
-        
-            if ! apt-get install -y "$pkg" >/dev/null 2>&1
-            then
-            
-                echo "Error: Failed to install $pkg. Aborting."
-                exit 1
-                
-            fi
-        
+
+            missing+=("$pkg")
+
         fi
-        
+
     done
+
+    if [[ ${#missing[@]} -gt 0 ]]
+    then
+
+        if ! apt-get install -y "${missing[@]}" >/dev/null 2>&1
+        then
+
+            echo "Error: Failed to install packages: ${missing[*]}. Aborting."
+            exit 1
+
+        fi
+
+    fi
     
     print_status_done
 
@@ -260,7 +266,7 @@ cache="$rootdir/install.cache"
 if [[ -f "$cache" ]]
 then
 
-    sed -i -e 's/" #.*/"/g' -e 's/^#.*//g' -e '/^\s*$/d' -e 's/[ \t]*$//' $cache
+    sed -i -e 's/" #.*/"/g' -e 's/^#.*//g' -e '/^\s*$/d' -e 's/[ \t]*$//' "$cache"
 
 fi
 
@@ -583,7 +589,13 @@ update_zsconfig_and_recompile()
     
     # Add for missing NFO check
     sed -i "/\bcheck_for_missing_nfo_dirs\b/ s/\"$/ \/site\/$section_name\/\"/" "$zsconfig_path"
-    
+
+    # Verify modifications were applied
+    if ! grep -q "/site/$section_name/" "$zsconfig_path"
+    then
+        printf "WARNING: zsconfig.h modifications for %s may not have applied - verify manually\n" "$section_name"
+    fi
+
     # Recompile if tools are available
     if command -v make >/dev/null 2>&1
     then
@@ -1303,7 +1315,7 @@ version()
 
     fi
 
-    latest=$(curl -sf "$url" | grep -o "glftpd-LNX-[^BETA]*\.tgz" | head -1)
+    latest=$(curl -sf --connect-timeout 10 --max-time 30 "$url" | grep -o "glftpd-LNX-[^BETA]*\.tgz" | head -1)
     architecture=$(uname -m)
 
     case $architecture in
@@ -1365,7 +1377,7 @@ version()
     SQLPASSWD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20; echo)
 
     [[ $(getent group glftpd) ]] || groupadd glftpd -g 199
-    [[ $(getent passwd sitebot) ]] || useradd -d "$glroot/sitebot" -m -g glftpd -s /bin/bash "$BOTU" && chfn -f 0 -r 0 -w 0 -h 0 "$BOTU"
+    [[ $(getent passwd sitebot) ]] || { useradd -d "$glroot/sitebot" -m -g glftpd -s /bin/bash "$BOTU" && chfn -f 0 -r 0 -w 0 -h 0 "$BOTU"; }
     
     # cleanup
     rm "packages/$latest"    
@@ -1811,7 +1823,13 @@ glftpd()
     print_status_start "Installing" "glftpd"
 
     echo "####### Here starts glFTPd scripts #######" >> /var/spool/cron/crontabs/root
-    cd $PK1DIR && sed "s/changeme/$port/" ../core/installgl.sh.org > installgl.sh && chmod +x installgl.sh && ./installgl.sh >/dev/null 2>&1
+    cd "$PK1DIR" || { echo "${red}Failed to enter glFTPd directory${reset}"; exit 1; }
+    sed "s/changeme/$port/" ../core/installgl.sh.org > installgl.sh && chmod +x installgl.sh
+    if ! ./installgl.sh >/dev/null 2>&1
+    then
+        echo "${red}glFTPd installation script failed${reset}"
+        exit 1
+    fi
     >$glroot/ftp-data/misc/welcome.msg
 
     print_status_done
@@ -2039,7 +2057,25 @@ eggdrop()
 
     print_status_start "Installing" "eggdrop"
 
-    cd ../$PK3DIR ; ./configure --prefix="$glroot/sitebot" >/dev/null 2>&1 && make config >/dev/null 2>&1  && make >/dev/null 2>&1 && make install >/dev/null 2>&1
+    cd "../$PK3DIR" || { echo "${red}Failed to enter eggdrop directory${reset}"; return 1; }
+    if ! ./configure --prefix="$glroot/sitebot" >/dev/null 2>&1
+    then
+        echo "${red}Eggdrop configure failed${reset}"
+        cd ../core
+        return 1
+    fi
+    if ! make config >/dev/null 2>&1 || ! make >/dev/null 2>&1
+    then
+        echo "${red}Eggdrop compilation failed${reset}"
+        cd ../core
+        return 1
+    fi
+    if ! make install >/dev/null 2>&1
+    then
+        echo "${red}Eggdrop installation failed${reset}"
+        cd ../core
+        return 1
+    fi
     cd ../core
     # Create eggdrop.conf
     cat egghead > eggdrop.conf
@@ -2105,7 +2141,14 @@ eggdrop()
     rm -f $glroot/sitebot/scripts/*.py
 
     # Create symlink and set permissions
-    ln -s "$glroot/sitebot/$(ls "$glroot/sitebot" | grep eggdrop-)" "$glroot/sitebot/sitebot"
+    local eggbin
+    eggbin=$(find "$glroot/sitebot" -maxdepth 1 -name "eggdrop-*" -type f | head -1)
+    if [[ -n "$eggbin" ]]
+    then
+        ln -s "$eggbin" "$glroot/sitebot/sitebot"
+    else
+        echo "${yellow}Warning: eggdrop binary not found for symlink${reset}"
+    fi
     chmod 666 "$glroot/etc$glroot.conf"
     chmod 777 "$glroot/sitebot/logs"
     chmod 755 "$glroot/sitebot"
@@ -2113,9 +2156,16 @@ eggdrop()
     # Create directories and speedtest files
     mkdir -pm 777 "$glroot/site/PRE/SiteOP" "$glroot/site/SPEEDTEST"
     chmod 777 "$glroot/site/PRE"
-    dd if=/dev/urandom of="$glroot/site/SPEEDTEST/150MB" bs=1M count=150 status=none
-    dd if=/dev/urandom of="$glroot/site/SPEEDTEST/250MB" bs=1M count=250 status=none
-    dd if=/dev/urandom of="$glroot/site/SPEEDTEST/500MB" bs=1M count=500 status=none
+    if command -v fallocate >/dev/null 2>&1
+    then
+        fallocate -l 150M "$glroot/site/SPEEDTEST/150MB"
+        fallocate -l 250M "$glroot/site/SPEEDTEST/250MB"
+        fallocate -l 500M "$glroot/site/SPEEDTEST/500MB"
+    else
+        dd if=/dev/zero of="$glroot/site/SPEEDTEST/150MB" bs=1M count=150 status=none
+        dd if=/dev/zero of="$glroot/site/SPEEDTEST/250MB" bs=1M count=250 status=none
+        dd if=/dev/zero of="$glroot/site/SPEEDTEST/500MB" bs=1M count=500 status=none
+    fi
 
     # Copy and configure scripts
     cp ../extra/*.tcl "$glroot/sitebot/scripts/"
@@ -2361,11 +2411,12 @@ pzsng()
 modules()
 {
 
-    cd $rootdir
-    for module in $(ls ./packages/modules)
+    cd "$rootdir"
+    for module_dir in ./packages/modules/*/
     do
 
-		. packages/modules/$module/$module.inc
+        module=$(basename "$module_dir")
+        [[ -f "packages/modules/$module/$module.inc" ]] && . "packages/modules/$module/$module.inc"
 
     done
 
@@ -2415,7 +2466,8 @@ usercreation()
     fi
 
     localip=$(ip -o -4 addr show | awk '/scope global/ {split($4, a, "."); print a[1]"."a[2]"."a[3]".*"}' | head -1)
-    netip=$(curl -4fsS https://ifconfig.me/ | awk -F. '{OFS="."; print $1,$2,$3,"*"}')
+    netip=$(curl -4fsS --connect-timeout 5 --max-time 10 https://ifconfig.me/ 2>/dev/null | awk -F. '{OFS="."; print $1,$2,$3,"*"}')
+    [[ -z "$netip" || "$netip" == ".*" ]] && netip=""
 	
     if has_key "$cache" ip
     then
