@@ -306,6 +306,78 @@ class TestGlftpdInstallerGUI(unittest.TestCase):
         self.assertEqual(len(self.app.section_entries), original_count)
         self.app._suppress_rebuild = False
 
+    # -- SSH helpers ------------------------------------------------------------
+
+    def test_check_ssh_alive_no_client(self):
+        """_check_ssh_alive should raise when no SSH client."""
+        self.app.ssh_client = None
+        with self.assertRaises(ConnectionError):
+            self.app._check_ssh_alive()
+
+    def test_check_ssh_alive_dead_transport(self):
+        """_check_ssh_alive should raise when transport is inactive."""
+        class FakeTransport:
+            def is_active(self):
+                return False
+        class FakeClient:
+            def get_transport(self):
+                return FakeTransport()
+        self.app.ssh_client = FakeClient()
+        with self.assertRaises(ConnectionError):
+            self.app._check_ssh_alive()
+
+    # -- Input validation -------------------------------------------------------
+
+    def test_validate_inputs_empty_sitename(self):
+        """Empty sitename should produce a validation error."""
+        self.app.sitename.set("")
+        errors = self.app._validate_inputs()
+        self.assertTrue(any("Site name" in e for e in errors))
+
+    def test_validate_inputs_sitename_with_spaces(self):
+        """Sitename with spaces should produce a validation error."""
+        self.app.sitename.set("MY SITE")
+        errors = self.app._validate_inputs()
+        self.assertTrue(any("spaces" in e for e in errors))
+
+    def test_validate_inputs_invalid_port(self):
+        """Non-numeric or out-of-range port should fail validation."""
+        self.app.sitename.set("TESTSITE")
+        self.app.port.set("abc")
+        errors = self.app._validate_inputs()
+        self.assertTrue(any("port" in e.lower() for e in errors))
+
+        self.app.port.set("99999")
+        errors = self.app._validate_inputs()
+        self.assertTrue(any("port" in e.lower() for e in errors))
+
+    def test_validate_inputs_valid(self):
+        """Valid inputs should produce no errors."""
+        self.app.sitename.set("TESTSITE")
+        self.app.port.set("2010")
+        self.app.sections.set("3")
+        errors = self.app._validate_inputs()
+        self.assertEqual(errors, [])
+
+    def test_validate_inputs_empty_section_name(self):
+        """Empty section name should produce a validation error."""
+        self.app.sitename.set("TESTSITE")
+        self.app.section_entries[0]["name"].set("")
+        errors = self.app._validate_inputs()
+        self.assertTrue(any("Section 1" in e for e in errors))
+
+    def test_disconnect_clears_credentials(self):
+        """disconnect_ssh with clear_credentials should wipe password."""
+        self.app.ssh_password.set("secret123")
+        self.app.disconnect_ssh(clear_credentials=True)
+        self.assertEqual(self.app.ssh_password.get(), "")
+
+    def test_disconnect_preserves_credentials_by_default(self):
+        """disconnect_ssh without flag should keep password."""
+        self.app.ssh_password.set("secret123")
+        self.app.disconnect_ssh()
+        self.assertEqual(self.app.ssh_password.get(), "secret123")
+
 
 if __name__ == "__main__":
     unittest.main()

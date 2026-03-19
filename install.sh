@@ -1346,7 +1346,7 @@ version()
     PK3DIR="eggdrop"    
 
     # Download and extract
-    if ! wget -q "$url/files/$latest" -P packages/ || ! tar xf "packages/$latest" -C packages/
+    if ! wget -q --timeout=60 "$url/files/$latest" -P packages/ || ! tar xf "packages/$latest" -C packages/
     then
 
 		echo "${red}Failed to download or extract glFTPd package${reset}"
@@ -2003,7 +2003,7 @@ glftpd()
     # Set permissions and create symlink
     chmod 755 "$glroot/site"
     ln -s "$glroot/etc/glftpd.conf" "/etc/glftpd.conf"
-    chmod 777 "$glroot/ftp-data/msgs"
+    chmod 770 "$glroot/ftp-data/msgs"
 
     # Copy additional management scripts
     cp ../extra/update_perms.sh \
@@ -2149,13 +2149,13 @@ eggdrop()
     else
         echo "${yellow}Warning: eggdrop binary not found for symlink${reset}"
     fi
-    chmod 666 "$glroot/etc$glroot.conf"
-    chmod 777 "$glroot/sitebot/logs"
+    chmod 660 "$glroot/etc$glroot.conf"
+    chmod 770 "$glroot/sitebot/logs"
     chmod 755 "$glroot/sitebot"
     
     # Create directories and speedtest files
     mkdir -pm 777 "$glroot/site/PRE/SiteOP" "$glroot/site/SPEEDTEST"
-    chmod 777 "$glroot/site/PRE"
+    chmod 770 "$glroot/site/PRE"
     if command -v fallocate >/dev/null 2>&1
     then
         fallocate -l 150M "$glroot/site/SPEEDTEST/150MB"
@@ -2384,26 +2384,52 @@ pzsng()
 
     print_status_start "Installing" "pzs-ng"
 
-	cd $rootdir/packages/pzs-ng
+	cd "$rootdir/packages/pzs-ng" || { echo "${red}Failed to enter pzs-ng directory${reset}"; return 1; }
 	pzs_ng_path=$(pwd)
-	git clone -q https://github.com/zlib-ng/zlib-ng ${pzs_ng_path}/zlib-ng
-	mkdir -p ${pzs_ng_path}/zlib-ng/build && cd ${pzs_ng_path}/zlib-ng/build
-	cmake .. -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1
-	make -j$(nproc) >/dev/null 2>&1 && cd ${pzs_ng_path}
-	
-    ./configure --with-zlib-ng-path=${pzs_ng_path}/zlib-ng/build --with-zlib-ng-include=${pzs_ng_path}/zlib-ng/build >/dev/null 2>&1 ; make >/dev/null 2>&1 ; make install >/dev/null 2>&1
-	for lib in $(ldd $glroot/bin/zipscript-c | grep libz | awk '{print $1}'); do
-		cp ${pzs_ng_path}/zlib-ng/build/$lib $glroot/lib/x86_64-linux-gnu
-	done
-	
-    cp sitebot/ngB* $glroot/sitebot/scripts/pzs-ng/
-    mkdir $glroot/sitebot/scripts/pzs-ng/modules
-    cp sitebot/modules/glftpd.tcl $glroot/sitebot/scripts/pzs-ng/modules
-    mkdir $glroot/sitebot/scripts/pzs-ng/plugins
-    cp ../core/glftpd-installer.theme $glroot/sitebot/scripts/pzs-ng/themes
-    cp ../core/ngBot.vars $glroot/sitebot/scripts/pzs-ng
-    cp -f ../core/sitewho.conf $glroot/bin
-    rm -f $glroot/sitebot/scripts/pzs-ng/ngBot.conf.dist
+	if ! git clone -q https://github.com/zlib-ng/zlib-ng "${pzs_ng_path}/zlib-ng" >/dev/null 2>&1
+	then
+		echo "${red}Failed to clone zlib-ng${reset}"
+		return 1
+	fi
+	mkdir -p "${pzs_ng_path}/zlib-ng/build" && cd "${pzs_ng_path}/zlib-ng/build" || return 1
+	if ! cmake .. -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1
+	then
+		echo "${red}zlib-ng cmake failed${reset}"
+		cd "$rootdir"
+		return 1
+	fi
+	if ! make -j"$(nproc)" >/dev/null 2>&1
+	then
+		echo "${red}zlib-ng compilation failed${reset}"
+		cd "$rootdir"
+		return 1
+	fi
+	cd "${pzs_ng_path}" || return 1
+
+	if ! ./configure --with-zlib-ng-path="${pzs_ng_path}/zlib-ng/build" --with-zlib-ng-include="${pzs_ng_path}/zlib-ng/build" >/dev/null 2>&1
+	then
+		echo "${red}pzs-ng configure failed${reset}"
+		cd "$rootdir"
+		return 1
+	fi
+	if ! make >/dev/null 2>&1 || ! make install >/dev/null 2>&1
+	then
+		echo "${red}pzs-ng compilation/installation failed${reset}"
+		cd "$rootdir"
+		return 1
+	fi
+	while IFS= read -r lib; do
+		[[ -n "$lib" ]] && cp "${pzs_ng_path}/zlib-ng/build/$lib" "$glroot/lib/x86_64-linux-gnu"
+	done < <(ldd "$glroot/bin/zipscript-c" 2>/dev/null | grep libz | awk '{print $1}')
+
+    cp sitebot/ngB* "$glroot/sitebot/scripts/pzs-ng/"
+    mkdir -p "$glroot/sitebot/scripts/pzs-ng/modules"
+    cp sitebot/modules/glftpd.tcl "$glroot/sitebot/scripts/pzs-ng/modules"
+    mkdir -p "$glroot/sitebot/scripts/pzs-ng/plugins"
+    cp ../core/glftpd-installer.theme "$glroot/sitebot/scripts/pzs-ng/themes"
+    cp ../core/ngBot.vars "$glroot/sitebot/scripts/pzs-ng"
+    cp -f ../core/sitewho.conf "$glroot/bin"
+    rm -f "$glroot/sitebot/scripts/pzs-ng/ngBot.conf.dist"
 
     print_status_done
 }
@@ -2697,11 +2723,11 @@ cleanup()
     touch "$glroot/ftp-data/logs/tur-space.log"
     
     # Setup directories and permissions
-    mkdir -m777 "$glroot/tmp"
+    mkdir -p -m770 "$glroot/tmp"
     chown -R "$BOTU:glftpd" "$glroot/sitebot"
     "$glroot/bin/update_perms.sh"
-    chmod 777 "$glroot/ftp-data/logs"
-    chmod 666 "$glroot/ftp-data/logs/"*
+    chmod 770 "$glroot/ftp-data/logs"
+    chmod 660 "$glroot/ftp-data/logs/"*
     
     # Clean up and reorganize eggdrop.conf - when no EOF marker exists
     sed -n '/MY SCRIPTS/,$p' "$glroot/sitebot/eggdrop.conf" | sed '1d' | sort > .tmp/myscripts

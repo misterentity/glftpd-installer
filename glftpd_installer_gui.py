@@ -779,6 +779,7 @@ class GlftpdInstallerGUI:
 
             self.ssh_client.connect(**connect_kw)
             self.sftp_client = self.ssh_client.open_sftp()
+            self.sftp_client.get_channel().settimeout(60)
             self.log_message("SSH connection established successfully!",
                              "success")
         except Exception as e:
@@ -788,7 +789,7 @@ class GlftpdInstallerGUI:
 
         self._update_status()
 
-    def disconnect_ssh(self):
+    def disconnect_ssh(self, clear_credentials=False):
         for client in (self.sftp_client, self.ssh_client):
             if client:
                 try:
@@ -797,10 +798,12 @@ class GlftpdInstallerGUI:
                     pass
         self.sftp_client = None
         self.ssh_client = None
+        if clear_credentials:
+            self.ssh_password.set("")
         self._update_status()
 
     def _on_close(self):
-        self.disconnect_ssh()
+        self.disconnect_ssh(clear_credentials=True)
         self.root.destroy()
 
     # -- Logging & progress (thread-safe via root.after) ------------------------
@@ -1020,6 +1023,35 @@ class GlftpdInstallerGUI:
 
     # -- Installation -----------------------------------------------------------
 
+    def _validate_inputs(self):
+        errors = []
+        sitename = self.sitename.get().strip()
+        if not sitename:
+            errors.append("Site name is required")
+        elif " " in sitename:
+            errors.append("Site name must not contain spaces")
+
+        try:
+            port = int(self.port.get())
+            if not (1 <= port <= 65535):
+                errors.append("FTP port must be between 1 and 65535")
+        except (ValueError, TypeError):
+            errors.append("FTP port must be a number")
+
+        try:
+            count = int(self.sections.get())
+            if not (1 <= count <= 22):
+                errors.append("Sections must be between 1 and 22")
+        except (ValueError, TypeError):
+            errors.append("Sections must be a number")
+
+        for i, sec in enumerate(self.section_entries, 1):
+            name = sec["name"].get().strip()
+            if not name:
+                errors.append(f"Section {i} name is empty")
+
+        return errors
+
     def start_installation(self):
         if self.testing:
             return
@@ -1029,8 +1061,13 @@ class GlftpdInstallerGUI:
             return
         if self.installation_running:
             return
-        if not self.sitename.get().strip():
-            messagebox.showerror("Error", "Please enter a site name")
+
+        validation_errors = self._validate_inputs()
+        if validation_errors:
+            messagebox.showerror(
+                "Validation Error",
+                "Please fix the following:\n\n"
+                + "\n".join(f"- {e}" for e in validation_errors))
             return
 
         host = self.ssh_host.get()
