@@ -630,7 +630,9 @@ class GlftpdInstallerGUI:
             
             # Step 4: Run installation
             self.update_progress(4, "INSTALLING")
-            stdin, stdout, stderr = self.ssh_client.exec_command(f'echo "{self.ssh_password.get()}" | sudo -S {remote_path}/install.sh')
+            stdin, stdout, stderr = self.ssh_client.exec_command(f'sudo -S {remote_path}/install.sh')
+            stdin.write(self.ssh_password.get() + "\n")
+            stdin.flush()
             
             # Read output in real-time
             for line in stdout:
