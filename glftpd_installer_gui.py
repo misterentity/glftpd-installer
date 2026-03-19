@@ -221,6 +221,8 @@ class GlftpdInstallerGUI:
         self.ssh_client = None
         self.sftp_client = None
         self._script_cbs = []
+        self._install_start_time = None
+        self._elapsed_timer_id = None
 
     # -- Window & styling -------------------------------------------------------
 
@@ -688,6 +690,15 @@ class GlftpdInstallerGUI:
                                         font=("Consolas", 10, "bold"))
         self.progress_label.pack(side="left", padx=5)
 
+        self.step_label = ttk.Label(progress_frame, text="",
+                                    font=("Consolas", 9))
+        self.step_label.pack(side="left", padx=(10, 5))
+
+        self.elapsed_label = ttk.Label(progress_frame, text="",
+                                       font=("Consolas", 9),
+                                       foreground=c["fg"])
+        self.elapsed_label.pack(side="right", padx=5)
+
         self.progress_bar = ttk.Progressbar(
             progress_frame, mode="determinate", length=300,
             style="Horizontal.TProgressbar")
@@ -704,6 +715,9 @@ class GlftpdInstallerGUI:
         self.log_text.tag_configure("error", foreground=c["error"])
         self.log_text.tag_configure("success", foreground=c["fg"])
         self.log_text.tag_configure("warning", foreground=c["warning"])
+        self.log_text.tag_configure("stage",
+                                    foreground=c["fg"],
+                                    font=("Consolas", 10, "bold"))
 
     # -- Matrix effect ----------------------------------------------------------
 
@@ -816,12 +830,16 @@ class GlftpdInstallerGUI:
     def _log_message_impl(self, message, tag):
         timestamp = time.strftime("%H:%M:%S")
         self.log_text.insert(tk.END, f"[{timestamp}] ", "timestamp")
+        if not tag and ("--------[" in message or "[DONE]" in message):
+            tag = "stage"
         self.log_text.insert(tk.END, f"{message}\n", tag)
         self.log_text.see(tk.END)
 
-    def update_progress(self, step, message):
+    def update_progress(self, step, message, total=None):
         if self.testing:
             return
+        if total is not None:
+            self.total_steps = total
         self.root.after(0, self._update_progress_impl, step, message)
 
     def _update_progress_impl(self, step, message):
@@ -829,7 +847,25 @@ class GlftpdInstallerGUI:
         progress = (step / self.total_steps) * 100
         self.progress_bar["value"] = progress
         self.progress_label["text"] = f"[{message}]"
+        self.step_label["text"] = f"[{step}/{self.total_steps}]"
         self.root.update_idletasks()
+
+    def _start_elapsed_timer(self):
+        self._install_start_time = time.time()
+        self._tick_elapsed()
+
+    def _tick_elapsed(self):
+        if not self.installation_running or self.testing:
+            return
+        elapsed = int(time.time() - self._install_start_time)
+        mins, secs = divmod(elapsed, 60)
+        self.elapsed_label["text"] = f"{mins:02d}:{secs:02d}"
+        self._elapsed_timer_id = self.root.after(1000, self._tick_elapsed)
+
+    def _stop_elapsed_timer(self):
+        if self._elapsed_timer_id:
+            self.root.after_cancel(self._elapsed_timer_id)
+            self._elapsed_timer_id = None
 
     def clear_log(self):
         if self.testing:
@@ -1081,6 +1117,8 @@ class GlftpdInstallerGUI:
         self.install_button["state"] = "disabled"
         self.progress_bar["value"] = 0
         self.current_step = 0
+        self.total_steps = self._TOTAL_INSTALL_STEPS
+        self.elapsed_label["text"] = "00:00"
 
         self.notebook.select(self.log_frame)
 
@@ -1101,11 +1139,39 @@ class GlftpdInstallerGUI:
         err = stderr.read().decode(errors="replace")
         return exit_code, out, err
 
+    # Stage markers emitted by install.sh, mapped to progress labels.
+    # Order matches the execution sequence in install.sh.
+    _INSTALL_STAGES = [
+        ("Ensuring that all required system packages", "PACKAGES"),
+        ("Downloading all required script packages", "DOWNLOADING"),
+        ("Server configuration", "SERVER CONFIG"),
+        ("Installing: glftpd", "GLFTPD"),
+        ("Installing: eggdrop", "EGGDROP"),
+        ("Installing: pzs-ng", "PZS-NG"),
+        ("FTP user configuration", "USER SETUP"),
+        ("If you are planning to uninstall", "FINISHING"),
+    ]
+
+    # Total: 4 pre-install + 8 install stages + 1 cleanup = 13
+    _TOTAL_INSTALL_STEPS = 13
+
+    def _detect_stage(self, line):
+        """Check if a line matches an install.sh stage marker.
+        Returns the label string or None."""
+        for marker, label in self._INSTALL_STAGES:
+            if marker in line:
+                return label
+        return None
+
     def _run_installation(self):
         remote_path = "/tmp/glftpd-installer"
         install_ok = False
+        stage_step = 4  # first 4 steps are pre-install
         try:
-            self.update_progress(1, "CREATING DIR")
+            self.root.after(0, self._start_elapsed_timer)
+
+            self.update_progress(1, "CREATING DIR",
+                                 self._TOTAL_INSTALL_STEPS)
             code, _, err = self._exec_checked(f"mkdir -p {remote_path}")
             if code != 0:
                 raise RuntimeError(
@@ -1120,6 +1186,7 @@ class GlftpdInstallerGUI:
                 f"{remote_path}/install.sh")
             self.log_message("Transferred installation script")
 
+            self.update_progress(3, "TRANSFERRING CONFIG")
             cache_content = self.generate_cache_content()
             with tempfile.NamedTemporaryFile(
                     mode="w", suffix=".cache", delete=False) as tmp:
@@ -1133,14 +1200,14 @@ class GlftpdInstallerGUI:
                 os.unlink(tmp_path)
             self.log_message("Transferred configuration file")
 
-            self.update_progress(3, "SETTING UP")
+            self.update_progress(4, "SETTING UP")
             code, _, err = self._exec_checked(
                 f"chmod +x {remote_path}/install.sh")
             if code != 0:
                 raise RuntimeError(f"Failed to chmod install.sh: {err}")
             self.log_message("Made installation script executable")
 
-            self.update_progress(4, "INSTALLING")
+            self.update_progress(stage_step, "INSTALLING")
             self._check_ssh_alive()
             stdin, stdout, stderr = self.ssh_client.exec_command(
                 f"sudo -S {remote_path}/install.sh")
@@ -1157,8 +1224,20 @@ class GlftpdInstallerGUI:
                     buf_out += chunk
                     while b"\n" in buf_out:
                         line, buf_out = buf_out.split(b"\n", 1)
-                        self.log_message(
-                            line.decode(errors="replace").rstrip())
+                        text = line.decode(errors="replace").rstrip()
+                        self.log_message(text)
+
+                        stage = self._detect_stage(text)
+                        if stage:
+                            stage_step += 1
+                            self.update_progress(
+                                min(stage_step,
+                                    self._TOTAL_INSTALL_STEPS - 1),
+                                stage)
+
+                        if "[DONE]" in text:
+                            self.log_message("", "success")
+
                 if channel.recv_stderr_ready():
                     buf_err += channel.recv_stderr(4096)
                 time.sleep(0.05)
@@ -1169,8 +1248,16 @@ class GlftpdInstallerGUI:
                 buf_err += channel.recv_stderr(4096)
 
             if buf_out:
-                for line in buf_out.decode(errors="replace").splitlines():
-                    self.log_message(line.rstrip())
+                for text in buf_out.decode(errors="replace").splitlines():
+                    text = text.rstrip()
+                    self.log_message(text)
+                    stage = self._detect_stage(text)
+                    if stage:
+                        stage_step += 1
+                        self.update_progress(
+                            min(stage_step,
+                                self._TOTAL_INSTALL_STEPS - 1),
+                            stage)
 
             exit_code = channel.recv_exit_status()
             errors = buf_err.decode(errors="replace")
@@ -1182,7 +1269,7 @@ class GlftpdInstallerGUI:
                     f"install.sh exited with code {exit_code}")
 
             install_ok = True
-            self.update_progress(5, "CLEANING UP")
+            self.update_progress(self._TOTAL_INSTALL_STEPS, "COMPLETE")
             self._exec_checked(f"rm -rf {remote_path}")
             self.log_message("Installation completed successfully!",
                              "success")
@@ -1199,11 +1286,13 @@ class GlftpdInstallerGUI:
                             "Error", f"Installation failed: {e}")
         finally:
             self.installation_running = False
+            self.root.after(0, self._stop_elapsed_timer)
             self.root.after(0, self._reset_install_button)
 
     def _reset_install_button(self):
         self.install_button["state"] = "normal"
         self._update_progress_impl(0, "READY")
+        self.step_label["text"] = ""
 
     # -- Export -----------------------------------------------------------------
 

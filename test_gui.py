@@ -378,6 +378,53 @@ class TestGlftpdInstallerGUI(unittest.TestCase):
         self.app.disconnect_ssh()
         self.assertEqual(self.app.ssh_password.get(), "secret123")
 
+    # -- Stage detection --------------------------------------------------------
+
+    def test_detect_stage_packages(self):
+        """Should detect the packages installation stage."""
+        result = self.app._detect_stage(
+            "Ensuring that all required system packages are installed")
+        self.assertEqual(result, "PACKAGES")
+
+    def test_detect_stage_downloading(self):
+        result = self.app._detect_stage(
+            "Downloading all required script packages....please wait")
+        self.assertEqual(result, "DOWNLOADING")
+
+    def test_detect_stage_glftpd(self):
+        result = self.app._detect_stage(
+            "Installing: glftpd ....................please wait [DONE]")
+        self.assertEqual(result, "GLFTPD")
+
+    def test_detect_stage_eggdrop(self):
+        result = self.app._detect_stage(
+            "Installing: eggdrop ...................please wait")
+        self.assertEqual(result, "EGGDROP")
+
+    def test_detect_stage_pzsng(self):
+        result = self.app._detect_stage(
+            "Installing: pzs-ng ....................please wait")
+        self.assertEqual(result, "PZS-NG")
+
+    def test_detect_stage_banner(self):
+        result = self.app._detect_stage(
+            "--------[ Server configuration ]-------")
+        self.assertEqual(result, "SERVER CONFIG")
+
+    def test_detect_stage_finishing(self):
+        result = self.app._detect_stage(
+            "If you are planning to uninstall glFTPd then run cleanup.sh")
+        self.assertEqual(result, "FINISHING")
+
+    def test_detect_stage_no_match(self):
+        """Regular output lines should not match any stage."""
+        result = self.app._detect_stage("some random output")
+        self.assertIsNone(result)
+
+    def test_total_install_steps(self):
+        """Total steps should account for pre-install + stages + cleanup."""
+        self.assertEqual(self.app._TOTAL_INSTALL_STEPS, 13)
+
 
 if __name__ == "__main__":
     unittest.main()
